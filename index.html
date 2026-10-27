@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f766e">
+  <title>탁구동호회</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <a href="#/" class="brand"><span class="ball">🏓</span><span id="clubName">탁구동호회</span></a>
+    <button id="authBtn" class="ghost" data-act="auth">운영진 로그인</button>
+  </header>
+
+  <nav class="tabs">
+    <a href="#/" data-route="home">일정</a>
+    <a href="#/ranking" data-route="ranking">연간 순위</a>
+    <a href="#/members" data-route="members">회원</a>
+  </nav>
+
+  <main id="view"><p class="muted center">불러오는 중…</p></main>
+
+  <div id="modal" class="modal hidden"></div>
+  <div id="toast" class="toast"></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
