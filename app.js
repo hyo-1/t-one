@@ -205,7 +205,7 @@ function render(force = false) {
   else html = viewHome();
 
   if (state.user && !isAdmin()) {
-    html = `<p class="notice">로그인한 계정(${esc(state.user.email)})은 운영진 목록에 없어 일부 기능이 제한됩니다.</p>` + html;
+    html = `<p class="notice">관리자 계정이 아니라 보기 전용입니다. 🔒을 눌러 로그아웃하세요.</p>` + html;
   }
   $("#view").innerHTML = html;
 }
@@ -1123,8 +1123,7 @@ function openLogin() {
   $("#modal").innerHTML = `<form class="card modal-box" data-form="login">
     <h3>🔐 관리자 로그인</h3>
     <p class="muted small">관리자만 행사·참가자·경기 결과를 입력할 수 있어요. 다른 분들은 로그인 없이 보기만 하면 됩니다.</p>
-    <input type="email" name="email" value="${esc(ADMIN_EMAILS[0])}" autocomplete="username" hidden>
-    <label>관리자 비밀번호<input type="password" name="pw" required minlength="6" autocomplete="current-password" placeholder="비밀번호 입력"></label>
+    <label>관리자 비밀번호<input type="password" name="pw" required minlength="6" autocomplete="off" inputmode="text" placeholder="비밀번호 입력"></label>
     <div class="row"><button type="button" class="btn" data-act="closeModal">취소</button>
       <span class="spacer"></span><button class="btn primary">로그인</button></div></form>`;
   $("#modal").classList.remove("hidden");
