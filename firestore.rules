@@ -1,0 +1,29 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ★ app.js 의 ADMIN_EMAILS 와 똑같이 맞춰 주세요
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email in ['gydnjshw@naver.com'];
+    }
+
+    // 회원: 누구나 보기, 운영진만 수정
+    match /members/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // 행사(날짜별 페이지, 참가자 명단): 누구나 보기, 운영진만 수정
+    match /events/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // 경기 결과: 누구나 보기, 관리자만 입력·수정·삭제
+    match /matches/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

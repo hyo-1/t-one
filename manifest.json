@@ -1,0 +1,17 @@
+{
+  "name": "티원 탁구동호회",
+  "short_name": "티원 탁구",
+  "description": "티원 탁구동호회 모임 일정·경기 결과·연간 순위",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f1f8fb",
+  "theme_color": "#2dc9c0",
+  "lang": "ko",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
