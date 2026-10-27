@@ -24,6 +24,56 @@ const firebaseConfig = {
 // 관리자 이메일 (firestore.rules 의 목록과 똑같이 맞춰 주세요)
 // 두 번째 관리자를 따로 두려면 ["gydnjshw@naver.com", "두번째@이메일"] 처럼 추가
 const ADMIN_EMAILS = ["gydnjshw@naver.com"];
+// 관리자 첫 화면에 "바로 만들기" 버튼으로 나오는 준비된 행사 (만들고 나면 버튼은 사라짐)
+const PRESET_EVENT = {
+  date: "2026-10-31", title: "10월 정기모임", place: "",
+  games: [{ name: "탁구", type: "league" }, { name: "100초 미션", type: "teams" }, { name: "스크린야구", type: "teams" }],
+  scale: [10, 8, 5],
+  notice: `티원 여러분 안녕하세요~ 벌써 10월이 다가왔네요. 모임이 얼마 남지 않았습니다!!
+모임 안내 한 번씩 읽어주시고 참고해 주세요!!
+
+━━━━━━━━━━━━━━
+📢 모임 행사 및 상품 안내
+━━━━━━━━━━━━━━
+이번 모임은 총 4차로 진행합니다! 🙌
+게임별 순위에 따라 점수를 부여하고, 최종 합산 점수로 순위를 결정합니다.
+
+🎯 진행 일정
+
+1차 — 🏓 아레나 단체전
+ • 단체전 진행
+ • 상품 : 생활용품
+
+2차 — ⏱️ 100초 미션
+ • 처음부터 끝까지 완료될 때까지 도전!
+ • 제한시간 : 100초
+ • 상품 : 생활용품
+
+3차 — 🍚 다 같이 식사
+ • 게임 끝나고 다 같이 맛있는 식사!
+
+4차 — ⚾ 스크린야구
+
+━━━━━━━━━━━━━━
+🏆 최종 순위 산정
+━━━━━━━━━━━━━━
+탁구 + 100초 미션 + 스크린야구 점수를 합산하여 최종 순위를 결정합니다.
+
+🥇 1등 : 10점
+🥈 2등 : 8점
+🥉 3등 : 5점
+
+🎁 최종 상품
+🥇 최종 1등 — 삼탠바이미
+🥈 최종 2등 — 닌텐도 스위치 라이트
+🥉 최종 3등 — JBL 스피커
+
+━━━━━━━━━━━━━━
+📌 내년부터 달라지는 점!
+━━━━━━━━━━━━━━
+내년부터는 모임 참여도를 높이기 위해 출석률을 기준으로도 상품을 지급할 예정입니다.
+꾸준히 참석해주시는 분들이 혜택을 받을 수 있도록 하겠습니다! 🙏`,
+};
 // 회원 탭에서 한 번에 불러올 기본 명단
 const DEFAULT_MEMBERS = ["김효원", "김용채", "김재훈", "김진", "김충희", "김형태", "노동호", "강동식", "류동흠", "박범준", "박찬우",
   "선우혁", "성준형", "송예영", "김승혁", "신동호", "유탁민", "윤홍균", "이호열", "정가람", "최자헌", "최형구"];
@@ -77,6 +127,7 @@ const state = {
   editAttend: false, attendDraft: new Set(),
   showNewEvent: false, editEvent: false,
   placePick: null, placeDraft: new Set(),
+  teamEdit: null, tieOpen: null, rubberPick: null,
   sortBy: "points", minGames: 0,
 };
 const isAdmin = () => !!state.user && ADMIN_EMAILS.includes(state.user.email);
@@ -118,6 +169,7 @@ onAuthStateChanged(auth, (u) => { state.user = u; render(); });
 window.addEventListener("hashchange", () => {
   state.pick = { winner: null, loser: null, score: "" };
   state.editAttend = false; state.editEvent = false; state.showNewEvent = false; state.placePick = null;
+  state.teamEdit = null; state.tieOpen = null; state.rubberPick = null;
   render(true);
   window.scrollTo(0, 0);
 });
@@ -197,7 +249,12 @@ function viewHome() {
       <div class="hero-meta">${fmtDate(next.date)}${next.place ? " · " + esc(next.place) : ""} · 참가 ${(next.attendees || []).length}명</div>
       <div class="hero-go">자세히 보기 →</div></a>` : "";
 
-  return hero + yearBar() + form + `<div class="list">${list}</div>`;
+  const preset = isAdmin() && PRESET_EVENT && !state.events.some((e) => e.date === PRESET_EVENT.date)
+    ? `<div class="card seed"><b>📌 ${fmtDate(PRESET_EVENT.date)} ${esc(PRESET_EVENT.title)}</b>
+        <p class="muted small">안내문과 종목(${PRESET_EVENT.games.map((x) => x.name).join(" · ")}, ${PRESET_EVENT.scale.join("/")}점)이 미리 들어간 행사를 만듭니다.</p>
+        <button class="btn primary block" data-act="createPreset">바로 만들기</button></div>` : "";
+
+  return preset + hero + yearBar() + form + `<div class="list">${list}</div>`;
 }
 
 // ----- 행사 페이지 ---------------------------------------------------
@@ -278,7 +335,7 @@ function viewEvent(id) {
       return `<li><span class="t">${fmtTime(m)}</span>
         <span class="w">${esc(memberName(m.winnerId))}</span><span class="vs">승</span>
         <span class="l">${esc(memberName(m.loserId))}</span>
-        ${m.score ? `<span class="score">${esc(m.score)}</span>` : ""}
+        ${m.score ? `<span class="score">${esc(m.score)}</span>` : ""}${m.note ? `<span class="score tag">${esc(m.note)}</span>` : ""}
         ${admin ? `<button class="mini danger" data-act="deleteMatch" data-id="${m.id}">삭제</button>` : ""}</li>`;
     }).join("")}</ul>` : `<p class="muted">아직 입력된 경기가 없습니다.</p>`}</section>`;
 
@@ -292,20 +349,77 @@ function viewEvent(id) {
 // ----- 종합 점수 (종목별 순위 → 점수 합산) -------------------------
 const MEDAL = ["🥇", "🥈", "🥉"];
 const placeLabel = (i) => MEDAL[i] ? `${MEDAL[i]} ${i + 1}등` : `${i + 1}등`;
+const GAME_TYPES = {
+  league: "🏓 팀 리그 (단식-단식-복식)",
+  teams: "👥 팀 순위",
+  manual: "✋ 순위 직접 지정",
+};
+const RUBBERS = ["1단식", "2단식", "복식"];
+const pairKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
+const teamOf = (g, tid) => (g.teams || []).find((t) => t.id === tid);
+const teamLabel = (t) => `<b>${esc(t.name)}</b> <span class="tm">${byName(t.members || []).map((m) => esc(m.name)).join("·") || "팀원 없음"}</span>`;
+const shuffle = (a) => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+
+// 팀 매치 결과: 2판을 먼저 이기면 승부 결정, 3판을 모두 치르면 경기 완료
+function tieResult(g, a, b) {
+  const rs = g.league?.[pairKey(a, b)]?.r || [];
+  let aw = 0, bw = 0;
+  rs.forEach((x) => { if (x?.w === a) aw++; else if (x?.w === b) bw++; });
+  const winner = aw >= 2 ? a : bw >= 2 ? b : null;
+  return { aw, bw, decided: !!winner, done: aw + bw >= RUBBERS.length, winner, rs };
+}
+
+function leagueStandings(g) {
+  const teams = g.teams || [];
+  const rows = teams.map((t) => ({ id: t.id, t, p: 0, w: 0, l: 0, rw: 0, rl: 0 }));
+  const R = (id) => rows.find((r) => r.id === id);
+  let done = 0, pairs = 0;
+  for (let i = 0; i < teams.length; i++) for (let j = i + 1; j < teams.length; j++) {
+    pairs++;
+    const a = teams[i].id, b = teams[j].id, x = tieResult(g, a, b);
+    R(a).rw += x.aw; R(a).rl += x.bw; R(b).rw += x.bw; R(b).rl += x.aw;
+    if (x.decided) { R(a).p++; R(b).p++; R(x.winner).w++; R(x.winner === a ? b : a).l++; }
+    if (x.done) done++;
+  }
+  const cmp = (x, y) => y.w - x.w || (y.rw - y.rl) - (x.rw - x.rl) || y.rw - x.rw
+    || (() => { const h = tieResult(g, x.id, y.id); return h.winner === x.id ? -1 : h.winner === y.id ? 1 : 0; })();
+  rows.sort((x, y) => cmp(x, y) || x.t.name.localeCompare(y.t.name, "ko", { numeric: true }));
+  rows.forEach((r, i) => { r.rank = i && cmp(rows[i - 1], r) === 0 ? rows[i - 1].rank : i + 1; });
+  return { rows, done, pairs, started: rows.some((r) => r.rw + r.rl > 0) };
+}
+
+// 종목 방식별로 "몇 등 = 누구누구" 를 계산
+function gamePlaces(g) {
+  const type = g.type || "manual";
+  if (type === "manual") return g.places || {};
+  const places = {};
+  const put = (rank, members) => { (places[rank] ??= []).push(...(members || [])); };
+  if (type === "teams") (g.teams || []).forEach((t) => { const rk = Number(g.ranks?.[t.id]); if (rk) put(rk, t.members); });
+  if (type === "league") { const s = leagueStandings(g); if (s.started && (s.done === s.pairs || g.closed)) s.rows.forEach((r) => put(r.rank, r.t.members)); }
+  return places;
+}
 
 function scoreTotals(sc) {
   const scale = sc.scale || [];
   const tot = {};
-  (sc.games || []).forEach((g) => scale.forEach((pt, i) =>
-    (g.places?.[i + 1] || []).forEach((id) => {
+  (sc.games || []).forEach((g) => {
+    const places = gamePlaces(g);
+    scale.forEach((pt, i) => (places[i + 1] || []).forEach((id) => {
       const r = (tot[id] ??= { id, sum: 0, per: {} });
       r.sum += pt; r.per[g.id] = (r.per[g.id] || 0) + pt;
-    })));
+    }));
+  });
   const rows = Object.values(tot).map((r) => ({ ...r, name: memberName(r.id) }))
     .sort((a, b) => b.sum - a.sum || a.name.localeCompare(b.name, "ko"));
   let prev = null, rank = 0;
   rows.forEach((r, i) => { if (r.sum !== prev) { rank = i + 1; prev = r.sum; } r.rank = rank; });
   return rows;
+}
+
+function hasResults(g) {
+  if ((g.type || "manual") === "manual") return Object.values(g.places || {}).some((a) => a.length);
+  if (g.type === "teams") return Object.values(g.ranks || {}).some(Boolean);
+  return Object.values(g.league || {}).some((x) => (x.r || []).some(Boolean));
 }
 
 function scoringSection(ev, att) {
@@ -324,27 +438,30 @@ function scoringSection(ev, att) {
       ${games.map((g) => `<th>${esc(g.name)}</th>`).join("")}<th>합계</th></tr></thead><tbody>
       ${rows.map((r) => `<tr class="${r.rank <= 3 ? "podium" : ""}"><td class="rk">${MEDAL[r.rank - 1] || r.rank}</td><td class="nm">${esc(r.name)}</td>
         ${games.map((g) => `<td>${r.per[g.id] ?? "-"}</td>`).join("")}<td class="rate">${r.sum}</td></tr>`).join("")}
-      </tbody></table></div>` : `<p class="muted">종목 순위를 입력하면 여기에 최종 순위가 나옵니다.</p>`;
+      </tbody></table></div>` : `<p class="muted">종목 결과를 입력하면 여기에 최종 순위가 나옵니다.</p>`;
 
-  const gameCards = games.map((g) => `<div class="game">
-    <div class="game-head"><b>${esc(g.name)}</b>
-      ${admin ? `<button class="mini danger" data-act="delGame" data-id="${ev.id}" data-g="${g.id}">종목 삭제</button>` : ""}</div>
-    ${scale.map((pt, i) => {
-      const pl = i + 1;
-      const ids = g.places?.[pl] || [];
-      const picking = state.placePick && state.placePick.g === g.id && state.placePick.p === pl;
-      if (picking) return `<div class="place picking"><div class="place-top"><span class="medal">${placeLabel(i)}</span><span class="pt">${pt}점</span></div>
-        <p class="muted small">해당하는 사람을 모두 고르세요 (단체전이면 팀원 전원)</p>
-        <div class="chips">${pool.map((m) => `<button class="chip ${state.placeDraft.has(m.id) ? "on" : ""}" data-act="togglePlace" data-id="${m.id}">${esc(m.name)}</button>`).join("")}</div>
-        <div class="row"><span class="spacer"></span><button class="btn" data-act="cancelPlace">취소</button>
-          <button class="btn primary" data-act="savePlace" data-id="${ev.id}">저장</button></div></div>`;
-      return `<div class="place"><div class="place-top"><span class="medal">${placeLabel(i)}</span><span class="pt">${pt}점</span>
-        ${admin ? `<button class="mini" data-act="pickPlace" data-g="${g.id}" data-p="${pl}">${ids.length ? "변경" : "지정"}</button>` : ""}</div>
-        ${ids.length ? `<div class="chips">${byName(ids).map((m) => `<span class="chip static">${esc(m.name)}</span>`).join("")}</div>` : ""}</div>`;
-    }).join("")}</div>`).join("");
+  const gameCards = games.map((g) => {
+    const type = g.type || "manual";
+    const head = `<div class="game-head"><b>${esc(g.name)}</b><span class="gtype">${GAME_TYPES[type]}</span></div>
+      ${admin ? `<div class="game-tools">
+        ${type !== "manual" ? `<button class="mini" data-act="editTeams" data-g="${g.id}">👥 팀 편성</button>` : ""}
+        <select class="mini-select" data-chg="gameType" data-id="${ev.id}" data-g="${g.id}">
+          ${Object.entries(GAME_TYPES).map(([k, v]) => `<option value="${k}" ${k === type ? "selected" : ""}>${v}</option>`).join("")}</select>
+        <button class="mini danger" data-act="delGame" data-id="${ev.id}" data-g="${g.id}">삭제</button></div>` : ""}`;
+    let body;
+    if (state.teamEdit?.g === g.id) body = teamEditor(ev, g, pool);
+    else if (type === "manual") body = manualPlaces(ev, g, scale, pool, admin);
+    else if (!(g.teams || []).length) body = `<p class="muted small">${admin ? "👥 팀 편성을 눌러 팀을 먼저 짜 주세요." : "아직 팀이 정해지지 않았어요."}</p>`;
+    else if (type === "teams") body = teamRanking(ev, g, scale, admin);
+    else body = leagueView(ev, g, scale, admin);
+    return `<div class="game">${head}${body}</div>`;
+  }).join("");
 
   const tools = admin ? `<details class="score-tools"><summary>⚙️ 종목·점수 설정</summary>
-      <form data-form="addGame" data-id="${ev.id}" class="quick-add"><input name="names" placeholder="종목 추가 (예: 탁구, 100초 미션, 스크린야구)" autocomplete="off"><button class="btn">+ 추가</button></form>
+      <form data-form="addGame" data-id="${ev.id}" class="quick-add col">
+        <input name="names" placeholder="종목 이름 (예: 줄넘기, 볼링)" autocomplete="off">
+        <div class="quick-add"><select name="type">${Object.entries(GAME_TYPES).map(([k, v]) => `<option value="${k}" ${k === "teams" ? "selected" : ""}>${v}</option>`).join("")}</select>
+        <button class="btn">+ 종목 추가</button></div></form>
       <form data-form="scale" data-id="${ev.id}" class="quick-add"><input name="scale" value="${scale.join(", ")}" placeholder="1등, 2등, 3등 점수"><button class="btn">점수 저장</button></form>
       <p class="muted small">점수는 1등부터 순서대로 쉼표로 적습니다. 4등까지 주려면 "10, 8, 5, 3"</p>
       <button class="mini danger" data-act="scoringOff" data-id="${ev.id}">종합 점수 끄기</button></details>` : "";
@@ -352,8 +469,127 @@ function scoringSection(ev, att) {
   return `<section class="card scoring">
     <h3>🏆 최종 순위 <small>${scale.map((pt, i) => `${i + 1}등 ${pt}점`).join(" · ")}</small></h3>
     ${board}
-    ${games.length ? `<h4>종목별 순위</h4>${gameCards}` : admin ? `<p class="muted small">아래 설정에서 종목을 먼저 추가하세요.</p>` : ""}
+    ${games.length ? `<h4>종목별 결과</h4>${gameCards}` : admin ? `<p class="muted small">아래 설정에서 종목을 먼저 추가하세요.</p>` : ""}
     ${tools}</section>`;
+}
+
+// 직접 지정 방식
+function manualPlaces(ev, g, scale, pool, admin) {
+  return scale.map((pt, i) => {
+    const pl = i + 1;
+    const ids = g.places?.[pl] || [];
+    const picking = state.placePick && state.placePick.g === g.id && state.placePick.p === pl;
+    if (picking) return `<div class="place picking"><div class="place-top"><span class="medal">${placeLabel(i)}</span><span class="pt">${pt}점</span></div>
+      <p class="muted small">해당하는 사람을 모두 고르세요</p>
+      <div class="chips">${pool.map((m) => `<button class="chip ${state.placeDraft.has(m.id) ? "on" : ""}" data-act="togglePlace" data-id="${m.id}">${esc(m.name)}</button>`).join("")}</div>
+      <div class="row"><span class="spacer"></span><button class="btn" data-act="cancelPlace">취소</button>
+        <button class="btn primary" data-act="savePlace" data-id="${ev.id}">저장</button></div></div>`;
+    return `<div class="place"><div class="place-top"><span class="medal">${placeLabel(i)}</span><span class="pt">${pt}점</span>
+      ${admin ? `<button class="mini" data-act="pickPlace" data-g="${g.id}" data-p="${pl}">${ids.length ? "변경" : "지정"}</button>` : ""}</div>
+      ${ids.length ? `<div class="chips">${byName(ids).map((m) => `<span class="chip static">${esc(m.name)}</span>`).join("")}</div>` : ""}</div>`;
+  }).join("");
+}
+
+// 팀 순위 방식 (100초 미션, 스크린야구 등)
+function teamRanking(ev, g, scale, admin) {
+  const teams = [...g.teams].sort((a, b) => (Number(g.ranks?.[a.id]) || 99) - (Number(g.ranks?.[b.id]) || 99)
+    || a.name.localeCompare(b.name, "ko", { numeric: true }));
+  const n = teams.length;
+  return `<ul class="team-rank">${teams.map((t) => {
+    const rk = Number(g.ranks?.[t.id]) || 0;
+    const rec = g.records?.[t.id] || "";
+    return `<li class="${rk && rk <= 3 ? "podium" : ""}">
+      <div class="tr-main"><span class="rk">${rk ? MEDAL[rk - 1] || rk + "등" : "-"}</span><span class="tr-team">${teamLabel(t)}</span>
+        ${rk && scale[rk - 1] ? `<span class="pt">+${scale[rk - 1]}</span>` : ""}</div>
+      ${admin ? `<div class="tr-edit">
+        <select data-chg="teamRank" data-id="${ev.id}" data-g="${g.id}" data-t="${t.id}">
+          <option value="">순위</option>${Array.from({ length: n }, (_, i) => `<option value="${i + 1}" ${rk === i + 1 ? "selected" : ""}>${i + 1}등</option>`).join("")}</select>
+        <input data-chg="teamRecord" data-id="${ev.id}" data-g="${g.id}" data-t="${t.id}" value="${esc(rec)}" placeholder="기록 (선택: 72초, 5점 등)"></div>`
+        : rec ? `<div class="tr-rec">기록 ${esc(rec)}</div>` : ""}</li>`;
+  }).join("")}</ul>`;
+}
+
+// 탁구 팀 리그 방식
+function leagueView(ev, g, scale, admin) {
+  const s = leagueStandings(g);
+  const teams = g.teams;
+  const table = `<div class="tbl-wrap"><table class="tbl rank league"><thead><tr><th></th><th>팀</th><th>승</th><th>패</th><th>세트</th></tr></thead><tbody>
+    ${s.rows.map((r) => `<tr class="${s.started && r.rank <= 3 ? "podium" : ""}"><td class="rk">${s.started ? MEDAL[r.rank - 1] || r.rank : "-"}</td>
+      <td class="nm">${teamLabel(r.t)}</td><td>${r.w}</td><td>${r.l}</td><td>${r.rw}-${r.rl}</td></tr>`).join("")}</tbody></table></div>
+    <p class="muted small">${s.done}/${s.pairs}경기 완료 · ${s.done === s.pairs ? "🎉 리그 종료 · 점수 반영됨" : g.closed ? "✅ 순위 확정 · 점수 반영됨" : "진행 중 (리그가 끝나면 점수 반영)"}</p>
+    ${admin && s.started && s.done < s.pairs ? `<button class="mini" data-act="closeLeague" data-id="${ev.id}" data-g="${g.id}">${g.closed ? "확정 취소" : "여기서 순위 확정"}</button>` : ""}
+    <p class="muted small">순위: 승수 → 세트 득실 → 승자승</p>`;
+
+  const ties = [];
+  for (let i = 0; i < teams.length; i++) for (let j = i + 1; j < teams.length; j++) ties.push([teams[i], teams[j]]);
+  const list = `<div class="ties">${ties.map(([A, B]) => {
+    const key = pairKey(A.id, B.id);
+    const x = tieResult(g, A.id, B.id);
+    const open = state.tieOpen === key;
+    const sideA = A.id < B.id ? A : B, sideB = sideA === A ? B : A;
+    const sa = sideA.id === A.id ? x.aw : x.bw, sb = sideA.id === A.id ? x.bw : x.aw;
+    const head = `<button class="tie-head ${x.done ? "done" : x.decided ? "decided" : ""}" data-act="toggleTie" data-k="${key}">
+        <span class="${x.winner === sideA.id ? "w" : ""}">${esc(sideA.name)}</span>
+        <span class="tie-score">${sa} : ${sb}${x.decided && !x.done ? '<small class="left">남은 판</small>' : ""}</span>
+        <span class="${x.winner === sideB.id ? "w" : ""}">${esc(sideB.name)}</span>
+        <span class="tie-arrow">${open ? "▲" : "▼"}</span></button>`;
+    if (!open) return `<div class="tie">${head}</div>`;
+    return `<div class="tie open">${head}<div class="tie-body">
+      <div class="tie-teams"><div>${teamLabel(sideA)}</div><div>${teamLabel(sideB)}</div></div>
+      ${RUBBERS.map((label, idx) => rubberRow(ev, g, key, sideA, sideB, idx, label, x.rs[idx], admin)).join("")}
+    </div></div>`;
+  }).join("")}</div>`;
+  return table + list;
+}
+
+function rubberRow(ev, g, key, A, B, idx, label, r, admin) {
+  const done = r && r.w;
+  if (done) {
+    const desc = idx < 2 && r.winner
+      ? `<span class="w">${esc(memberName(r.winner))}</span> 승 <span class="muted">vs ${esc(memberName(r.loser))}</span>`
+      : `<span class="w">${esc(teamOf(g, r.w)?.name)}</span> 승`;
+    return `<div class="rubber"><span class="rb-label">${label}</span><span class="rb-res">${desc}</span>
+      ${admin ? `<button class="mini danger" data-act="clearRubber" data-id="${ev.id}" data-g="${g.id}" data-k="${key}" data-i="${idx}">✕</button>` : ""}</div>`;
+  }
+  if (!admin) return `<div class="rubber"><span class="rb-label">${label}</span><span class="muted">-</span></div>`;
+  const pick = state.rubberPick;
+  if (idx === 2) return `<div class="rubber"><span class="rb-label">${label}</span><span class="rb-btns">
+      ${[A, B].map((T) => `<button class="pick sm" data-act="setRubber" data-id="${ev.id}" data-g="${g.id}" data-k="${key}" data-i="2" data-w="${T.id}">${esc(T.name)} 승</button>`).join("")}</span></div>`;
+  if (pick && pick.k === key && pick.i === idx) {
+    const winTeam = (A.members || []).includes(pick.winner) ? A : B;
+    const opp = winTeam === A ? B : A;
+    return `<div class="rubber picking"><span class="rb-label">${label}</span><div class="rb-step">
+      <span><b class="w">${esc(memberName(pick.winner))}</b> 님이 이긴 상대는?</span>
+      <span class="rb-btns">${(opp.members || []).map((id) => `<button class="pick sm lose" data-act="setRubber" data-id="${ev.id}" data-g="${g.id}" data-k="${key}" data-i="${idx}" data-w="${winTeam.id}" data-winner="${pick.winner}" data-loser="${id}">${esc(memberName(id))}</button>`).join("")}
+      <button class="mini" data-act="cancelRubber">취소</button></span></div></div>`;
+  }
+  return `<div class="rubber"><span class="rb-label">${label}</span><span class="rb-btns">
+    <span class="muted small">이긴 사람</span>
+    ${[...(A.members || []), ...(B.members || [])].map((id) => `<button class="pick sm" data-act="pickRubberWinner" data-k="${key}" data-i="${idx}" data-p="${id}">${esc(memberName(id))}</button>`).join("")}</span></div>`;
+}
+
+// 팀 편성 편집기
+function teamEditor(ev, g, pool) {
+  const te = state.teamEdit;
+  const where = {};
+  te.teams.forEach((t) => t.members.forEach((id) => (where[id] = t)));
+  const isLeague = (g.type || "manual") === "league";
+  return `<div class="team-editor">
+    <div class="te-random">
+      ${isLeague ? `<button class="btn" data-act="randomTeams" data-size="2">🎲 2인 1팀 랜덤 편성</button>`
+        : `<label class="inline">팀 수 <input type="number" min="2" max="20" value="${te.count}" data-chg="teamCount"></label>
+           <button class="btn" data-act="randomTeams">🎲 랜덤 편성</button>`}
+    </div>
+    <p class="muted small">팀을 고른 뒤 아래 이름을 탭하면 그 팀으로 들어가요. 한 번 더 탭하면 빠집니다.</p>
+    <div class="te-teams">${te.teams.map((t) => `<button class="te-team ${te.active === t.id ? "on" : ""}" data-act="activeTeam" data-t="${t.id}">
+        <b>${esc(t.name)}</b><span>${byName(t.members).map((m) => esc(m.name)).join(", ") || "비어 있음"}</span></button>`).join("")}
+      <button class="te-team add" data-act="addTeam">+ 팀 추가</button></div>
+    <div class="chips">${pool.map((m) => {
+      const t = where[m.id];
+      return `<button class="chip ${t ? (t.id === te.active ? "on" : "taken") : ""}" data-act="assignTeam" data-id="${m.id}">${esc(m.name)}${t ? `<small> ${esc(t.name)}</small>` : ""}</button>`;
+    }).join("")}</div>
+    <div class="row">${te.teams.length ? `<button class="btn danger" data-act="removeTeam">마지막 팀 삭제</button>` : ""}<span class="spacer"></span>
+      <button class="btn" data-act="cancelTeams">취소</button><button class="btn primary" data-act="saveTeams" data-id="${ev.id}">팀 저장</button></div></div>`;
 }
 
 function matchInput(ev, att) {
@@ -514,6 +750,17 @@ const actions = {
     await updateDoc(doc(db, "events", d.id), { attendees: [...state.attendDraft] });
     state.editAttend = false; toast(`참가자 ${state.attendDraft.size}명 저장`); render(true);
   },
+  async createPreset(d, el) {
+    el.disabled = true;
+    const P = PRESET_EVENT;
+    const ref = await addDoc(collection(db, "events"), {
+      date: P.date, year: Number(P.date.slice(0, 4)), title: P.title, place: P.place, notice: P.notice,
+      attendees: [], createdAt: serverTimestamp(),
+      scoring: { scale: P.scale, games: P.games.map((x, i) => ({ id: Date.now().toString(36) + i, name: x.name, type: x.type, places: {} })) },
+    });
+    toast("행사를 만들었습니다. 참가자를 넣어 주세요");
+    location.hash = "#/event/" + ref.id;
+  },
   async seedMembers() {
     const missing = DEFAULT_MEMBERS.filter((n) => !state.members.some((m) => m.name === n));
     const b = writeBatch(db);
@@ -532,8 +779,11 @@ const actions = {
     const sc = scoringOf(d.id);
     const g = sc.games.find((x) => x.id === d.g);
     if (!confirm(`'${g?.name}' 종목을 삭제할까요?`)) return;
+    const b = writeBatch(db);
+    leagueMatchIds(sc.games.find((x) => x.id === d.g)).forEach((mid) => b.delete(doc(db, "matches", mid)));
     sc.games = sc.games.filter((x) => x.id !== d.g);
-    await saveScoring(d.id, sc);
+    b.update(doc(db, "events", d.id), { scoring: sc });
+    await b.commit();
   },
   pickPlace(d) {
     const ev = state.events.find((e) => e.id === location.hash.split("/")[2]);
@@ -560,6 +810,108 @@ const actions = {
     await saveScoring(d.id, sc);
     state.placePick = null; toast("순위를 저장했습니다"); render(true);
   },
+  // ---- 팀 편성 ----
+  editTeams(d) {
+    const g = currentEvent()?.scoring?.games?.find((x) => x.id === d.g);
+    const teams = JSON.parse(JSON.stringify(g?.teams || []));
+    state.teamEdit = { g: d.g, teams, active: teams[0]?.id || null, count: Math.max(2, teams.length || 4) };
+    state.tieOpen = null; render(true);
+  },
+  activeTeam(d) { state.teamEdit.active = d.t; render(true); },
+  addTeam() {
+    const te = state.teamEdit;
+    const t = { id: "t" + Date.now().toString(36), name: `${te.teams.length + 1}팀`, members: [] };
+    te.teams.push(t); te.active = t.id; render(true);
+  },
+  removeTeam() {
+    const te = state.teamEdit; te.teams.pop();
+    if (!te.teams.some((t) => t.id === te.active)) te.active = te.teams.at(-1)?.id || null;
+    render(true);
+  },
+  assignTeam(d) {
+    const te = state.teamEdit;
+    if (!te.active) { actions.addTeam(); }
+    const act = te.teams.find((t) => t.id === te.active);
+    if (act.members.includes(d.id)) act.members = act.members.filter((x) => x !== d.id);
+    else { te.teams.forEach((t) => (t.members = t.members.filter((x) => x !== d.id))); act.members.push(d.id); }
+    render(true);
+  },
+  randomTeams(d) {
+    const ev = currentEvent();
+    const att = ev?.attendees?.length ? ev.attendees : state.members.filter((m) => m.active !== false).map((m) => m.id);
+    if (att.length < 2) return toast("참가자를 먼저 넣어 주세요");
+    const ids = shuffle(att);
+    const te = state.teamEdit;
+    const n = d.size ? Math.floor(ids.length / Number(d.size)) || 1 : Math.min(te.count, ids.length);
+    const teams = Array.from({ length: n }, (_, i) => ({ id: "t" + Date.now().toString(36) + i, name: `${i + 1}팀`, members: [] }));
+    ids.forEach((id, i) => teams[d.size ? Math.min(Math.floor(i / Number(d.size)), n - 1) : i % n].members.push(id));
+    te.teams = teams; te.active = teams[0].id;
+    if (d.size && ids.length % Number(d.size)) toast(`인원이 홀수라 ${teams.at(-1).name}이 3명이에요`);
+    render(true);
+  },
+  cancelTeams() { state.teamEdit = null; render(true); },
+  async saveTeams(d) {
+    const sc = scoringOf(d.id);
+    const g = sc.games.find((x) => x.id === state.teamEdit.g);
+    const teams = state.teamEdit.teams.filter((t) => t.members.length).map((t, i) => ({ ...t, name: `${i + 1}팀` }));
+    const b = writeBatch(db);
+    if (hasResults(g) && JSON.stringify(g.teams) !== JSON.stringify(teams)) {
+      if (!confirm("팀이 바뀌면 이 종목의 기존 결과가 초기화됩니다. 계속할까요?")) return;
+      resetGameResults(g, b);
+    }
+    g.teams = teams;
+    b.update(doc(db, "events", d.id), { scoring: sc });
+    await b.commit();
+    state.teamEdit = null; toast(`${teams.length}개 팀을 저장했습니다`); render(true);
+  },
+  // ---- 탁구 리그 ----
+  toggleTie(d) { state.tieOpen = state.tieOpen === d.k ? null : d.k; state.rubberPick = null; render(true); },
+  pickRubberWinner(d) { state.rubberPick = { k: d.k, i: Number(d.i), winner: d.p }; render(true); },
+  cancelRubber() { state.rubberPick = null; render(true); },
+  async setRubber(d) {
+    const ev = currentEvent();
+    const sc = scoringOf(d.id);
+    const g = sc.games.find((x) => x.id === d.g);
+    g.league ??= {};
+    const entry = (g.league[d.k] ??= { r: [null, null, null] });
+    while (entry.r.length < 3) entry.r.push(null);
+    const i = Number(d.i);
+    const b = writeBatch(db);
+    if (d.winner) {
+      const ref = doc(collection(db, "matches"));
+      b.set(ref, { eventId: ev.id, date: ev.date, year: ev.year, winnerId: d.winner, loserId: d.loser, score: "",
+        note: `${g.name} 리그`, createdAt: serverTimestamp() });
+      entry.r[i] = { w: d.w, winner: d.winner, loser: d.loser, matchId: ref.id };
+    } else entry.r[i] = { w: d.w };
+    b.update(doc(db, "events", d.id), { scoring: sc });
+    await b.commit();
+    state.rubberPick = null;
+    const x = tieResult(g, ...d.k.split("|"));
+    const score = `${Math.max(x.aw, x.bw)}:${Math.min(x.aw, x.bw)}`;
+    toast(x.done ? `경기 종료 · ${teamOf(g, x.winner).name} 승리 (${score})`
+      : x.decided ? `${teamOf(g, x.winner).name} 승리 확정 (${score}) · 남은 경기도 입력하세요` : "저장했습니다");
+    if (x.done) state.tieOpen = null;
+    render(true);
+  },
+  async closeLeague(d) {
+    const sc = scoringOf(d.id);
+    const g = sc.games.find((x) => x.id === d.g);
+    if (!g.closed && !confirm("남은 경기가 있어도 현재 순위로 점수를 반영할까요?")) return;
+    g.closed = !g.closed;
+    await saveScoring(d.id, sc);
+  },
+  async clearRubber(d) {
+    const sc = scoringOf(d.id);
+    const g = sc.games.find((x) => x.id === d.g);
+    const entry = g.league?.[d.k];
+    const r = entry?.r?.[Number(d.i)];
+    if (!r || !confirm("이 판 결과를 지울까요?")) return;
+    const b = writeBatch(db);
+    if (r.matchId) b.delete(doc(db, "matches", r.matchId));
+    entry.r[Number(d.i)] = null;
+    b.update(doc(db, "events", d.id), { scoring: sc });
+    await b.commit();
+  },
   pickWinner(d) { state.pick.winner = d.id; render(true); },
   pickLoser(d) { state.pick.loser = d.id; render(true); },
   pickScore(d) { state.pick.score = state.pick.score === d.s ? "" : d.s; render(true); },
@@ -580,7 +932,17 @@ const actions = {
   async deleteMatch(d) {
     const m = state.matches.find((x) => x.id === d.id);
     if (!m || !confirm(`${memberName(m.winnerId)} 승 / ${memberName(m.loserId)} 패 기록을 지울까요?`)) return;
-    await deleteDoc(doc(db, "matches", d.id));
+    const b = writeBatch(db);
+    b.delete(doc(db, "matches", d.id));
+    const ev = state.events.find((e) => e.id === m.eventId);
+    if (ev?.scoring) {
+      const sc = scoringOf(ev.id); let touched = false;
+      sc.games.forEach((g) => Object.values(g.league || {}).forEach((x) => (x.r || []).forEach((r, i) => {
+        if (r?.matchId === d.id) { x.r[i] = null; touched = true; }
+      })));
+      if (touched) b.update(doc(db, "events", ev.id), { scoring: sc });
+    }
+    await b.commit();
     toast("경기 기록을 지웠습니다");
   },
   sort(d) { state.sortBy = d.k; render(true); },
@@ -600,6 +962,45 @@ const actions = {
   },
 };
 
+const currentEvent = () => state.events.find((e) => e.id === location.hash.split("/")[2]);
+function leagueMatchIds(g) {
+  const ids = [];
+  Object.values(g?.league || {}).forEach((x) => (x.r || []).forEach((r) => r?.matchId && ids.push(r.matchId)));
+  return ids;
+}
+function resetGameResults(g, batch) {
+  leagueMatchIds(g).forEach((mid) => batch.delete(doc(db, "matches", mid)));
+  g.places = {}; g.ranks = {}; g.records = {}; g.league = {}; g.closed = false;
+}
+const changes = {
+  teamCount(el) { if (state.teamEdit) state.teamEdit.count = Math.max(2, Number(el.value) || 2); },
+  async gameType(el) {
+    const sc = scoringOf(el.dataset.id);
+    const g = sc.games.find((x) => x.id === el.dataset.g);
+    const b = writeBatch(db);
+    if (hasResults(g)) {
+      if (!confirm("방식을 바꾸면 이 종목의 결과가 초기화됩니다. 계속할까요?")) return render(true);
+      resetGameResults(g, b);
+    }
+    g.type = el.value;
+    b.update(doc(db, "events", el.dataset.id), { scoring: sc });
+    await b.commit();
+  },
+  async teamRank(el) {
+    const sc = scoringOf(el.dataset.id);
+    const g = sc.games.find((x) => x.id === el.dataset.g);
+    g.ranks = { ...(g.ranks || {}) };
+    if (el.value) g.ranks[el.dataset.t] = Number(el.value); else delete g.ranks[el.dataset.t];
+    await saveScoring(el.dataset.id, sc);
+  },
+  async teamRecord(el) {
+    const sc = scoringOf(el.dataset.id);
+    const g = sc.games.find((x) => x.id === el.dataset.g);
+    g.records = { ...(g.records || {}), [el.dataset.t]: el.value.trim().slice(0, 30) };
+    await saveScoring(el.dataset.id, sc);
+  },
+};
+
 function scoringOf(eventId) {
   const ev = state.events.find((e) => e.id === eventId);
   return JSON.parse(JSON.stringify(ev?.scoring || { scale: [10, 8, 5], games: [] }));
@@ -611,7 +1012,8 @@ const forms = {
     const names = fd.get("names").split(",").map((x) => x.trim()).filter(Boolean);
     if (!names.length) return toast("종목 이름을 입력하세요");
     const sc = scoringOf(f.dataset.id);
-    names.forEach((name, i) => sc.games.push({ id: Date.now().toString(36) + i, name, places: {} }));
+    const type = fd.get("type") || "teams";
+    names.forEach((name, i) => sc.games.push({ id: Date.now().toString(36) + i, name, type, places: {} }));
     await saveScoring(f.dataset.id, sc);
     f.reset(); toast(`종목 ${names.length}개 추가`);
   },
@@ -700,6 +1102,8 @@ document.addEventListener("click", (e) => {
 });
 document.addEventListener("change", (e) => {
   if (e.target.dataset.actChange === "minGames") { state.minGames = Number(e.target.value); render(true); }
+  const fn = changes[e.target.dataset.chg];
+  if (fn) Promise.resolve(fn(e.target)).catch(handleError);
 });
 document.addEventListener("submit", (e) => {
   const f = e.target.closest("form[data-form]");

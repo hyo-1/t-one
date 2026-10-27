@@ -248,3 +248,60 @@ input, textarea, select { font-size: 16px; } /* iOS 확대 방지 */
 .att-list .cnt { font-size: 13px; color: var(--muted); }
 .att-list .badge { margin: 0; }
 .rank tr.podium td { background: var(--brand-soft); }
+
+/* ===== 종목: 팀 편성 / 팀 순위 / 리그 ===== */
+.game-head { flex-wrap: wrap; gap: 6px; }
+.gtype { font-size: 12px; color: var(--brand); background: var(--brand-soft); padding: 2px 8px; border-radius: 999px; }
+.game-tools { display: flex; gap: 6px; flex-wrap: wrap; margin: 2px 0 10px; }
+.mini-select { width: auto; margin: 0; padding: 3px 6px; font-size: 13px; border-radius: 8px; min-height: 30px; }
+.tm { color: var(--muted); font-size: 12.5px; font-weight: 400; }
+
+.team-rank { list-style: none; margin: 0; padding: 0; }
+.team-rank li { padding: 10px; border-radius: 12px; background: var(--card); margin-bottom: 6px; border: 1px solid var(--line); }
+.team-rank li.podium { border-color: transparent; background: linear-gradient(var(--brand-soft), var(--brand-soft)) padding-box, var(--grad) border-box; border: 1.5px solid transparent; }
+.tr-main { display: flex; align-items: center; gap: 10px; }
+.tr-main .rk { width: 30px; text-align: center; font-weight: 900; font-size: 15px; }
+.tr-team { flex: 1; line-height: 1.4; }
+.tr-main .pt { font-weight: 900; color: var(--brand); }
+.tr-edit { display: flex; gap: 6px; margin-top: 8px; }
+.tr-edit select { width: 86px; margin: 0; flex: none; }
+.tr-edit input { margin: 0; }
+.tr-rec { font-size: 13px; color: var(--muted); margin: 4px 0 0 40px; }
+
+.league td.nm { white-space: normal; min-width: 110px; }
+.ties { display: grid; gap: 6px; margin-top: 8px; }
+.tie { border: 1px solid var(--line); border-radius: 12px; background: var(--card); overflow: hidden; }
+.tie-head { width: 100%; display: grid; grid-template-columns: 1fr auto 1fr 18px; align-items: center; gap: 8px; padding: 11px 12px;
+  border: 0; background: none; font: inherit; color: var(--ink); cursor: pointer; text-align: center; }
+.tie-head .w { color: var(--win); font-weight: 900; }
+.tie-score { font-weight: 900; font-size: 16px; background: var(--bg); border-radius: 8px; padding: 2px 10px; }
+.tie-head.done .tie-score { background: var(--grad); color: #fff; }
+.tie-arrow { font-size: 10px; color: var(--muted); }
+.tie-body { padding: 4px 12px 12px; border-top: 1px dashed var(--line); }
+.tie-teams { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px; margin: 8px 0; }
+.tie-teams > div { background: var(--bg); border-radius: 8px; padding: 6px 8px; }
+.rubber { display: flex; align-items: center; gap: 8px; padding: 9px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.rb-label { font-size: 12px; font-weight: 700; color: #fff; background: var(--brand-2); border-radius: 6px; padding: 2px 7px; flex: none; }
+.rb-res { flex: 1; }
+.rb-btns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; flex: 1; }
+.rb-step { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.pick.sm { font-size: 14px; padding: 8px 12px; border-radius: 10px; }
+
+.team-editor { background: var(--card); border-radius: 12px; padding: 12px; border: 2px solid var(--brand-2); }
+.te-random { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+.te-random input { width: 64px; margin: 0; padding: 7px 8px; }
+.te-teams { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; margin: 8px 0 12px; }
+.te-team { text-align: left; font: inherit; padding: 8px 10px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; }
+.te-team b { display: block; font-size: 14px; }
+.te-team span { font-size: 12.5px; color: var(--muted); }
+.te-team.on { border-color: var(--brand-2); background: var(--accent-soft); }
+.te-team.add { text-align: center; color: var(--brand); font-weight: 700; border-style: dashed; }
+.chip.taken { background: var(--bg); color: var(--muted); }
+.chip small { font-size: 11px; opacity: .8; }
+.quick-add.col { flex-direction: column; }
+.quick-add.col .quick-add { margin-top: 0; }
+.quick-add select { margin: 0; width: auto; flex: 1; }
+.score.tag { background: var(--accent-soft); color: var(--brand); }
+.tie-score { position: relative; }
+.tie-score .left { position: absolute; left: 50%; top: 100%; transform: translateX(-50%); font-size: 10px; white-space: nowrap; color: var(--lose); font-weight: 700; }
+.tie-head.decided .tie-score { outline: 1.5px solid var(--brand-2); }
