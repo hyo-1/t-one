@@ -77,7 +77,7 @@ const state = {
   editAttend: false, attendDraft: new Set(),
   showNewEvent: false, editEvent: false,
   placePick: null, placeDraft: new Set(),
-  sortBy: "rate", minGames: 0,
+  sortBy: "points", minGames: 0,
 };
 const isAdmin = () => !!state.user && ADMIN_EMAILS.includes(state.user.email);
 const memberName = (id) => state.members.find((m) => m.id === id)?.name ?? "(삭제된 회원)";
@@ -379,55 +379,73 @@ function matchInput(ev, att) {
 // ----- 연간 순위 -----------------------------------------------------
 function viewRanking() {
   watchMatches(state.year);
-  if (!state.loaded.events || !state.loaded.matches) return yearBar() + `<p class="muted center">불러오는 중…</p>`;
+  if (!state.loaded.events || !state.loaded.matches || !state.loaded.members) return yearBar() + `<p class="muted center">불러오는 중…</p>`;
   const t = today();
-  const evs = state.events.filter((e) => e.year === state.year && e.date <= t);
+  const evs = state.events.filter((e) => e.year === state.year && e.date <= t).sort((a, b) => a.date.localeCompare(b.date));
   const total = evs.length;
+  const known = (id) => state.members.some((m) => m.id === id);
+  const tab = state.sortBy;
+  const segBtn = (k, label) => `<button class="seg ${tab === k ? "on" : ""}" data-act="sort" data-k="${k}">${label}</button>`;
+  const segs = `<div class="segs wide">${segBtn("points", "🏆 종합 포인트")}${segBtn("rate", "🏓 탁구 승률")}${segBtn("att", "📅 출석")}</div>`;
+  const rankCell = (rank) => MEDAL[rank - 1] || rank;
+  const withRank = (rows, val) => { let prev = null, rank = 0; rows.forEach((r, i) => { const v = val(r); if (v !== prev) { rank = i + 1; prev = v; } r.rank = rank; }); return rows; };
+  let body = "";
 
-  const st = {};
-  const g = (id) => (st[id] ??= { id, att: 0, w: 0, l: 0 });
-  state.members.filter((m) => m.active !== false).forEach((m) => g(m.id));
-  evs.forEach((e) => (e.attendees || []).forEach((id) => g(id).att++));
-  state.matches.forEach((m) => { g(m.winnerId).w++; g(m.loserId).l++; });
+  if (tab === "points") {
+    const scored = evs.filter((e) => e.scoring?.games?.length);
+    const st = {};
+    scored.forEach((e) => scoreTotals(e.scoring).forEach((r) => {
+      const x = (st[r.id] ??= { id: r.id, sum: 0, per: {} });
+      x.sum += r.sum; x.per[e.id] = r.sum;
+    }));
+    const rows = withRank(Object.values(st).filter((r) => known(r.id)).map((r) => ({ ...r, name: memberName(r.id) }))
+      .sort((a, b) => b.sum - a.sum || a.name.localeCompare(b.name, "ko")), (r) => r.sum);
+    const short = (e) => { const [, m, d] = e.date.split("-").map(Number); return `${m}/${d}`; };
+    body = `<p class="muted small">모임마다 종목별 순위 점수(탁구 + 레크리에이션)를 1년 동안 합산한 순위예요.</p>
+      ${rows.length ? `<div class="tbl-wrap"><table class="tbl rank"><thead><tr><th></th><th>이름</th>
+        ${scored.map((e) => `<th><a href="#/event/${e.id}">${short(e)}</a></th>`).join("")}<th>합계</th></tr></thead><tbody>
+        ${rows.map((r) => `<tr class="${r.rank <= 3 ? "podium" : ""}"><td class="rk">${rankCell(r.rank)}</td><td class="nm">${esc(r.name)}</td>
+          ${scored.map((e) => `<td>${r.per[e.id] != null ? r.per[e.id] : (e.attendees || []).includes(r.id) ? 0 : '<span class="muted">·</span>'}</td>`).join("")}
+          <td class="rate">${r.sum}</td></tr>`).join("")}</tbody></table></div>
+        <p class="muted small">· 표시는 그 모임에 불참</p>`
+      : `<p class="muted center pad">아직 점수가 입력된 모임이 없어요.<br>행사 페이지의 🏆 종합 점수에서 종목 순위를 입력하면 여기에 쌓여요.</p>`}`;
+  }
 
-  const rows = Object.values(st)
-    .filter((r) => state.members.some((m) => m.id === r.id))
-    .map((r) => {
-      const n = r.w + r.l;
-      return { ...r, n, name: memberName(r.id), rate: n ? r.w / n : -1, arate: total ? r.att / total : 0 };
-    });
-
-  const min = state.minGames;
-  const q = (r) => (r.n >= min && r.n > 0 ? 1 : 0);
-  const sorters = {
-    rate: (a, b) => q(b) - q(a) || b.rate - a.rate || b.w - a.w || b.n - a.n,
-    win: (a, b) => b.w - a.w || b.rate - a.rate,
-    att: (a, b) => b.att - a.att || b.rate - a.rate,
-  };
-  rows.sort((a, b) => sorters[state.sortBy](a, b) || a.name.localeCompare(b.name, "ko"));
-
-  let rank = 0;
-  const body = rows.map((r) => {
-    const ranked = state.sortBy !== "rate" || q(r);
-    if (ranked) rank++;
-    const medal = ranked && rank <= 3 ? ["🥇", "🥈", "🥉"][rank - 1] : ranked ? rank : "-";
-    return `<tr class="${ranked ? "" : "dim"}"><td class="rk">${medal}</td><td class="nm">${esc(r.name)}</td>
-      <td>${r.att}/${total}<small>${total ? pct(r.arate) : ""}</small></td>
-      <td>${r.n}</td><td>${r.w}</td><td>${r.l}</td><td class="rate">${pct(r.rate)}</td></tr>`;
-  }).join("");
-
-  const tab = (k, label) => `<button class="seg ${state.sortBy === k ? "on" : ""}" data-act="sort" data-k="${k}">${label}</button>`;
-  return yearBar() + `
-    <div class="card">
-      <div class="controls">
-        <div class="segs">${tab("rate", "승률순")}${tab("win", "승수순")}${tab("att", "출석순")}</div>
+  if (tab === "rate") {
+    const st = {};
+    const g = (id) => (st[id] ??= { id, w: 0, l: 0 });
+    state.matches.forEach((m) => { g(m.winnerId).w++; g(m.loserId).l++; });
+    const min = state.minGames;
+    const all = Object.values(st).filter((r) => known(r.id)).map((r) => ({ ...r, n: r.w + r.l, name: memberName(r.id), rate: r.w / (r.w + r.l) }));
+    const ok = all.filter((r) => r.n >= min).sort((a, b) => b.rate - a.rate || b.w - a.w || a.name.localeCompare(b.name, "ko"));
+    const rest = all.filter((r) => r.n < min).sort((a, b) => b.n - a.n);
+    withRank(ok, (r) => r.rate + "|" + r.w);
+    body = `<div class="controls"><p class="muted small" style="margin:0">탁구 경기 ${state.matches.length}경기 기준</p>
         <label class="inline">최소 경기
-          <select data-act-change="minGames">${[0, 5, 10, 20, 30, 50].map((n) => `<option value="${n}" ${n === min ? "selected" : ""}>${n || "제한없음"}</option>`).join("")}</select></label>
-      </div>
-      <p class="muted small">${state.year}년 진행된 행사 ${total}회 · 총 ${state.matches.length}경기</p>
-      ${rows.length ? `<div class="tbl-wrap"><table class="tbl rank"><thead><tr><th></th><th>이름</th><th>출석</th><th>경기</th><th>승</th><th>패</th><th>승률</th></tr></thead>
-        <tbody>${body}</tbody></table></div>` : `<p class="muted">회원을 먼저 등록하세요.</p>`}
-    </div>`;
+        <select data-act-change="minGames">${[0, 3, 5, 10, 20].map((n) => `<option value="${n}" ${n === min ? "selected" : ""}>${n ? n + "경기" : "제한없음"}</option>`).join("")}</select></label></div>
+      ${all.length ? `<div class="tbl-wrap"><table class="tbl rank"><thead><tr><th></th><th>이름</th><th>경기</th><th>승</th><th>패</th><th>승률</th></tr></thead><tbody>
+        ${ok.map((r) => `<tr class="${r.rank <= 3 ? "podium" : ""}"><td class="rk">${rankCell(r.rank)}</td><td class="nm">${esc(r.name)}</td><td>${r.n}</td><td>${r.w}</td><td>${r.l}</td><td class="rate">${pct(r.rate)}</td></tr>`).join("")}
+        ${rest.map((r) => `<tr class="dim"><td class="rk">-</td><td class="nm">${esc(r.name)}</td><td>${r.n}</td><td>${r.w}</td><td>${r.l}</td><td>${pct(r.rate)}</td></tr>`).join("")}
+        </tbody></table></div>${rest.length ? `<p class="muted small">흐린 줄은 최소 경기 수 미달</p>` : ""}`
+      : `<p class="muted center pad">아직 입력된 탁구 경기가 없어요.</p>`}`;
+  }
+
+  if (tab === "att") {
+    const cnt = {};
+    evs.forEach((e) => (e.attendees || []).forEach((id) => (cnt[id] = (cnt[id] || 0) + 1)));
+    const rows = withRank(state.members.filter((m) => m.active !== false || cnt[m.id])
+      .map((m) => ({ id: m.id, name: m.name, att: cnt[m.id] || 0 }))
+      .sort((a, b) => b.att - a.att || a.name.localeCompare(b.name, "ko")), (r) => r.att);
+    const full = total && rows.filter((r) => r.att === total).length;
+    body = `<p class="muted small">${state.year}년 진행된 모임 ${total}회${full ? ` · 🏅 개근 ${full}명` : ""}</p>
+      ${total ? `<ul class="att-list">${rows.map((r) => `<li class="${r.att === total ? "full" : ""}">
+          <span class="rk">${r.att ? rankCell(r.rank) : "-"}</span><span class="nm">${esc(r.name)}</span>
+          <span class="dots">${evs.map((e) => `<i class="${(e.attendees || []).includes(r.id) ? "on" : ""}" title="${fmtDate(e.date)}"></i>`).join("")}</span>
+          <span class="cnt">${r.att}/${total}회</span>${r.att === total ? '<span class="badge">🏅 개근</span>' : ""}</li>`).join("")}</ul>`
+      : `<p class="muted center pad">아직 진행된 모임이 없어요.</p>`}`;
+  }
+
+  return yearBar() + `<div class="card">${segs}${body}</div>`;
 }
 
 // ----- 회원 ---------------------------------------------------------
