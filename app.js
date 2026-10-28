@@ -77,6 +77,8 @@ const PRESET_EVENT = {
 // 직책 (회원 탭에서 관리자가 바꿀 수 있고, 따로 정하지 않으면 아래 값을 사용)
 const DEFAULT_ROLES = { "김효원": "회장", "성준형": "총무" };
 const ROLE_ORDER = ["회장", "부회장", "총무"];
+// 로그인 없이 입력한 경기는 이 시간(분) 안에 입력한 휴대폰에서 취소 가능 (firestore.rules 와 같게)
+const UNDO_MINUTES = 5;
 // 회원 탭에서 한 번에 불러올 기본 명단
 const DEFAULT_MEMBERS = ["김효원", "김용채", "김재훈", "김진", "김충희", "김형태", "노동호", "강동식", "류동흠", "박범준", "박찬우",
   "선우혁", "성준형", "송예영", "김승혁", "신동호", "유탁민", "윤홍균", "이호열", "정가람", "최자헌", "최형구"];
@@ -132,6 +134,7 @@ const state = {
   placePick: null, placeDraft: new Set(),
   teamEdit: null, tieOpen: null, rubberPick: null,
   noticeOpen: {}, // 행사 안내 펼침 상태 (행사별, 기본은 닫힘)
+  secOpen: {},    // 참가자·개인 성적·경기 기록 펼침 상태 (기본은 닫힘)
   sortBy: "points", minGames: 0,
 };
 const isAdmin = () => !!state.user && ADMIN_EMAILS.includes(state.user.email);
@@ -214,6 +217,12 @@ const statusPill = (date) => {
 
 // 내 기록: 이 기기에서 고른 내 이름 (보기 편의용)
 state.me = (() => { try { return localStorage.getItem("tone.me") || ""; } catch { return ""; } })();
+function myMatchIds() {
+  try { return new Set(JSON.parse(localStorage.getItem("tone.myMatches") || "[]")); } catch { return new Set(); }
+}
+function rememberMyMatch(id) {
+  try { const a = [...myMatchIds(), id].slice(-30); localStorage.setItem("tone.myMatches", JSON.stringify(a)); } catch { /* 저장 불가 환경 */ }
+}
 function setMe(id) {
   state.me = id || "";
   try { state.me ? localStorage.setItem("tone.me", state.me) : localStorage.removeItem("tone.me"); } catch { /* 저장 불가 환경 */ }
@@ -304,6 +313,15 @@ function viewHome() {
     ${admin && !state.showNewEvent ? `<button class="btn ghost block add-btn" data-act="showNewEvent">${IC.plus}새 모임 만들기</button>` : ""}</section>`;
 }
 
+// 접었다 펴는 카드 (기본은 접힘, 행사별로 열림 상태 기억)
+function fold(key, title, count, body, { forceOpen = false, action = "" } = {}) {
+  const open = forceOpen || state.secOpen[key];
+  return `<details class="card fold" data-sec="${key}" ${open ? "open" : ""}>
+    <summary class="sec-head"><h2>${title}${count != null ? ` <span class="count">${count}</span>` : ""}</h2>
+      <span class="fold-r">${action}<span class="nt-chev">${IC.down}</span></span></summary>
+    <div class="fold-body">${body}</div></details>`;
+}
+
 // ----- 행사 페이지 ---------------------------------------------------
 function viewEvent(id) {
   const ev = state.events.find((e) => e.id === id);
@@ -356,25 +374,27 @@ function viewEvent(id) {
       ? `<div class="chips wrap">${byName(att).map((m) => `<span class="chip static ${m.id === state.me ? "me" : ""}">${esc(m.name)}</span>`).join("")}</div>`
       : `<p class="empty">아직 참가자가 없어요.</p>`;
   }
-  const attSection = `<section class="card">
-    <div class="sec-head"><h2>참가자 <span class="count">${att.length}명</span></h2>
-      ${admin && !state.editAttend ? `<button class="btn ghost sm" data-act="editAttend" data-id="${ev.id}">넣기·빼기</button>` : ""}</div>
-    ${attBody}</section>`;
+  const attSection = fold(`${ev.id}:att`, "참가자", `${att.length}명`, attBody, {
+    forceOpen: state.editAttend,
+    action: admin && !state.editAttend ? `<button class="btn ghost sm" data-act="editAttend" data-id="${ev.id}">넣기·빼기</button>` : "",
+  });
 
   // 개인 경기 입력
   // 리그가 있는 모임: 입력 창구는 '종목별 결과'의 리그 대진 하나, 리그 밖 경기는 경기 기록 카드에서 추가
   // 리그가 없는 모임: 지금처럼 위쪽에 경기 결과 입력 카드
   const hasLeague = (ev.scoring?.games || []).some((g) => g.type === "league");
-  const inputSection = admin && !hasLeague ? `<section class="card">
+  // 리그가 없는 모임은 위쪽 카드에서 누구나 바로 입력 (로그인 없이 이긴 사람이 입력)
+  const inputSection = !hasLeague ? `<section class="card">
     <div class="sec-head"><h2>경기 결과 입력</h2></div>
-    <p class="hint lead">이긴 사람 → 진 사람 순서로 고르면 기록되고, 개인 탁구 승률에 반영돼요.</p>
+    <p class="hint lead">경기가 끝나면 이긴 사람이 입력해 주세요. 이긴 사람 → 진 사람 순서로 고르면 기록되고, 개인 탁구 승률에 반영돼요.</p>
     ${matchInput(ev, att)}</section>` : "";
-  const freeInput = admin && hasLeague ? (state.freeInput
-    ? `<div class="free-input">
-        <div class="fi-head"><b>리그 외 경기 추가</b><button class="btn ghost xs" data-act="toggleFreeInput">닫기</button></div>
-        <p class="hint lead">리그 대진 밖에서 따로 친 경기만 여기에 입력하세요. 리그 경기는 위 ‘종목별 결과’에서 입력해요.</p>
-        ${matchInput(ev, att)}</div>`
-    : `<button class="btn ghost block add-btn" data-act="toggleFreeInput">${IC.plus}리그 외 경기 추가</button>`) : "";
+  // 리그가 있는 모임: 맨 아래 '자유 경기 추가' (누구나, 로그인 없이)
+  const freeInput = hasLeague ? (state.freeInput
+    ? `<section class="card free-input">
+        <div class="fi-head"><b>자유 경기 추가</b><button class="btn ghost xs" data-act="toggleFreeInput">닫기</button></div>
+        <p class="hint lead">리그 대진 밖에서 따로 친 경기를 이긴 사람이 입력해요. 리그 경기는 위 ‘종목별 결과’에서 관리자가 입력해요.</p>
+        ${matchInput(ev, att)}</section>`
+    : `<button class="btn ghost block add-btn free-btn" data-act="toggleFreeInput">${IC.plus}자유 경기 추가 <small>이긴 사람이 입력</small></button>`) : "";
 
   // 이날 개인 성적
   const tally = {};
@@ -385,24 +405,26 @@ function viewEvent(id) {
   const tallyRows = Object.entries(tally)
     .map(([id, r]) => ({ id, ...r, name: memberName(id) }))
     .sort((a, b) => b.w - a.w || a.l - b.l || a.name.localeCompare(b.name, "ko"));
-  const tallySection = tallyRows.length ? `<section class="card">
-    <div class="sec-head"><h2>이날 개인 성적</h2><span class="sub">단식 기준</span></div>
+  const tallySection = tallyRows.length ? fold(`${ev.id}:tally`, "이날 개인 성적", `${tallyRows.length}명`, `
     <div class="tbl-wrap"><table class="data-tbl"><thead><tr><th class="l">이름</th><th>승</th><th>패</th><th>승률</th></tr></thead><tbody>
     ${tallyRows.map((r) => `<tr class="click ${r.id === state.me ? "me" : ""}" data-act="player" data-id="${r.id}"><td class="nm l">${esc(r.name)}</td><td class="num">${r.w}</td><td class="num">${r.l}</td><td class="num strong">${pct(r.w / (r.w + r.l))}</td></tr>`).join("")}
-    </tbody></table></div></section>` : "";
+    </tbody></table></div><p class="hint">이름을 누르면 개인 기록을 볼 수 있어요.</p>`) : "";
 
   // 경기 기록
-  const logSection = `<section class="card">
-    <div class="sec-head"><h2>경기 기록 <span class="count">${ms.length}경기</span></h2></div>
+  const mine = myMatchIds();
+  const canUndo = (m) => mine.has(m.id) && Date.now() - ts(m) < UNDO_MINUTES * 60000;
+  const logSection = fold(`${ev.id}:log`, "경기 기록", `${ms.length}경기`, `
     ${ms.length ? `<ul class="log">${ms.map((m) => `<li>
         <span class="t">${fmtTime(m)}</span>
         <span class="who"><b class="w">${esc(memberName(m.winnerId))}</b><span class="vs">승</span><span class="l">${esc(memberName(m.loserId))}</span></span>
         ${m.score ? `<span class="tag">${esc(m.score)}</span>` : ""}${m.note ? `<span class="tag soft">${esc(m.note)}</span>` : `<span class="tag">자유 경기</span>`}
-        ${admin ? `<button class="x-btn" data-act="deleteMatch" data-id="${m.id}" aria-label="삭제">삭제</button>` : ""}</li>`).join("")}</ul>`
-      : `<p class="empty">아직 입력된 경기가 없어요.</p>`}${freeInput}</section>`;
+        ${admin ? `<button class="x-btn" data-act="deleteMatch" data-id="${m.id}" aria-label="삭제">삭제</button>`
+          : !m.note && canUndo(m) ? `<button class="x-btn" data-act="deleteMatch" data-id="${m.id}" aria-label="입력 취소">취소</button>` : ""}</li>`).join("")}</ul>
+      ${admin ? "" : `<p class="hint">잘못 입력했다면 입력한 휴대폰에서 ${UNDO_MINUTES}분 안에 ‘취소’할 수 있어요. 그 뒤에는 관리자에게 말해 주세요.</p>`}`
+      : `<p class="empty">아직 입력된 경기가 없어요.</p>`}`);
 
-  if (!admin) return head + noticeSection + scoringSection(ev, att) + tallySection + attSection + logSection;
-  return head + noticeSection + attSection + inputSection + scoringSection(ev, att) + tallySection + logSection;
+  if (!admin) return head + noticeSection + inputSection + scoringSection(ev, att) + tallySection + attSection + logSection + freeInput;
+  return head + noticeSection + attSection + inputSection + scoringSection(ev, att) + tallySection + logSection + freeInput;
 }
 
 // ----- 종합 점수 (종목별 순위 → 점수 합산) -------------------------
@@ -1117,11 +1139,12 @@ const actions = {
     const { winner, loser, score } = state.pick;
     if (!ev || !winner || !loser) return;
     el.disabled = true;
-    await addDoc(collection(db, "matches"), {
+    const ref = await addDoc(collection(db, "matches"), {
       eventId: ev.id, date: ev.date, year: ev.year,
       winnerId: winner, loserId: loser, score: score || "",
       createdAt: serverTimestamp(),
     });
+    rememberMyMatch(ref.id);
     toast(`${memberName(winner)} 승 · ${memberName(loser)} 패 저장!`);
     state.pick = { winner: null, loser: null, score: "" };
     state.freeInput = false;
@@ -1310,6 +1333,7 @@ document.addEventListener("click", (e) => {
 document.addEventListener("toggle", (e) => {
   const d = e.target;
   if (d.matches?.("details[data-notice]")) state.noticeOpen[d.dataset.notice] = d.open;
+  if (d.matches?.("details[data-sec]")) state.secOpen[d.dataset.sec] = d.open;
 }, true);
 document.addEventListener("change", (e) => {
   if (e.target.dataset.actChange === "minGames") { state.minGames = Number(e.target.value); render(true); }
