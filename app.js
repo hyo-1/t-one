@@ -204,6 +204,7 @@ const IC = {
   edit: SVG('<path d="M4 20h4L19 9l-4-4L4 16z"/>'),
   plus: SVG('<path d="M12 5v14M5 12h14"/>'),
   doc: SVG('<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>'),
+  notice: SVG('<path d="M4 9.5v5h2.5L16 19V5L6.5 9.5z"/><path d="M6.5 14.5l1.4 4.5h3l-1.2-3.7"/><path d="M19 9.3a3.2 3.2 0 0 1 0 5.4"/>'),
 };
 const rk = (r) => (r ? `<span class="rk ${r <= 3 ? "r" + r : ""}">${r}</span>` : `<span class="rk none">-</span>`);
 const statusPill = (date) => {
@@ -334,7 +335,7 @@ function viewEvent(id) {
   // 행사 안내 (접어서 한 줄 미리보기)
   const firstLine = (ev.notice || "").split("\n").map((s) => s.trim()).find((s) => s && !/^[━─\-=_~·.\s]+$/.test(s)) || "";
   const noticeSection = ev.notice && !state.editEvent ? `<details class="notice" data-notice="${ev.id}" ${state.noticeOpen[ev.id] ? "open" : ""}>
-    <summary><span class="nt-ic">${IC.doc}</span><span class="nt-txt"><b>행사 안내</b><span>${esc(firstLine)}</span></span><span class="nt-chev">${IC.down}</span></summary>
+    <summary><span class="nt-ic">${IC.notice}</span><span class="nt-txt"><b>공지사항</b><span>${esc(firstLine)}</span></span><span class="nt-chev">${IC.down}</span></summary>
     <div class="notice-body">${linkify(esc(ev.notice))}</div></details>` : "";
 
   // 참가자

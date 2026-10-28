@@ -483,3 +483,4 @@ label.inline select, label.inline input { width: auto; min-height: 34px; padding
 .officer { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--r-md); border: 1px solid #d6e5f8; background: var(--blue-50); }
 .officer b { font-size: 15px; color: var(--navy); }
 .officer .role { background: var(--blue); }
+.nt-ic .ic { width: 20px; height: 20px; }
