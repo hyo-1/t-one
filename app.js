@@ -581,6 +581,7 @@ function gameBody(ev, g, scale, pool, admin) {
       ${type !== "manual" ? `<button class="btn ghost xs" data-act="editTeams" data-g="${g.id}">팀 편성</button>` : ""}
       <select class="xs-select" data-chg="gameType" data-id="${ev.id}" data-g="${g.id}" aria-label="진행 방식">
         ${Object.entries(GAME_TYPES).map(([k, v]) => `<option value="${k}" ${k === type ? "selected" : ""}>${v}</option>`).join("")}</select>
+      ${hasResults(g) ? `<button class="btn ghost xs danger" data-act="resetGame" data-id="${ev.id}" data-g="${g.id}">결과 초기화</button>` : ""}
       <button class="btn ghost xs danger" data-act="delGame" data-id="${ev.id}" data-g="${g.id}">종목 삭제</button></div>` : ""}`;
   let body;
   if (state.teamEdit?.g === g.id) body = teamEditor(ev, g, pool);
@@ -597,8 +598,13 @@ function manualPlaces(ev, g, scale, pool, admin) {
     const pl = i + 1;
     const ids = g.places?.[pl] || [];
     const picking = state.placePick && state.placePick.g === g.id && state.placePick.p === pl;
-    if (picking) return `<li class="picking"><div class="fin-row">${rk(pl)}<div class="fin-main"><b>${placeLabel(i)}</b><span class="tm">해당하는 사람을 모두 고르세요</span></div><span class="pts">+${pt}</span></div>
-      <div class="chips wrap">${pool.map((m) => `<button class="chip ${state.placeDraft.has(m.id) ? "on" : ""}" data-act="togglePlace" data-id="${m.id}">${esc(m.name)}</button>`).join("")}</div>
+    if (picking) return `<li class="picking"><div class="fin-row">${rk(pl)}<div class="fin-main"><b>${placeLabel(i)}</b><span class="tm">해당하는 사람을 모두 고르세요 · 다른 순위에 있는 사람(회색)은 고를 수 없어요</span></div><span class="pts">+${pt}</span></div>
+      <div class="chips wrap">${pool.map((m) => {
+        const otherPl = Object.keys(g.places || {}).find((k) => Number(k) !== pl && (g.places[k] || []).includes(m.id));
+        return otherPl
+          ? `<button class="chip taken" disabled>${esc(m.name)}<small>${otherPl}등</small></button>`
+          : `<button class="chip ${state.placeDraft.has(m.id) ? "on" : ""}" data-act="togglePlace" data-id="${m.id}">${esc(m.name)}</button>`;
+      }).join("")}</div>
       <div class="row"><span class="spacer"></span><button class="btn ghost" data-act="cancelPlace">취소</button>
         <button class="btn primary" data-act="savePlace" data-id="${ev.id}">저장</button></div></li>`;
     return `<li><div class="fin-row">${rk(pl)}
@@ -722,13 +728,14 @@ function teamEditor(ev, g, pool) {
         : `<label class="inline">팀 수 <input type="number" min="2" max="20" value="${te.count}" data-chg="teamCount"></label>
            <button class="btn" data-act="randomTeams">랜덤 편성</button>`}
     </div>
-    <p class="hint lead">팀을 고른 뒤 아래 이름을 탭하면 그 팀으로 들어가요. 한 번 더 탭하면 빠져요.</p>
+    <p class="hint lead">팀을 고른 뒤 아래 이름을 탭하면 그 팀으로 들어가요. 한 번 더 탭하면 빠져요. 다른 팀에 들어간 사람(회색)은 그 팀에서 먼저 빼야 고를 수 있어요.</p>
     <div class="te-teams">${te.teams.map((t) => `<button class="te-team ${te.active === t.id ? "on" : ""}" data-act="activeTeam" data-t="${t.id}">
         <b>${esc(t.name)}</b><span>${byName(t.members).map((m) => esc(m.name)).join(", ") || "비어 있음"}</span></button>`).join("")}
       <button class="te-team add" data-act="addTeam">${IC.plus}팀 추가</button></div>
     <div class="chips wrap">${pool.map((m) => {
       const t = where[m.id];
-      return `<button class="chip ${t ? (t.id === te.active ? "on" : "taken") : ""}" data-act="assignTeam" data-id="${m.id}">${esc(m.name)}${t ? `<small>${esc(t.name)}</small>` : ""}</button>`;
+      const other = t && t.id !== te.active;
+      return `<button class="chip ${t ? (other ? "taken" : "on") : ""}" data-act="assignTeam" data-id="${m.id}" ${other ? "disabled" : ""}>${esc(m.name)}${other ? `<small>${esc(t.name)}</small>` : ""}</button>`;
     }).join("")}</div>
     <div class="row">${te.teams.length ? `<button class="btn ghost sm danger" data-act="removeTeam">마지막 팀 삭제</button>` : ""}<span class="spacer"></span>
       <button class="btn ghost" data-act="cancelTeams">취소</button><button class="btn primary" data-act="saveTeams" data-id="${ev.id}">팀 저장</button></div></div>`;
@@ -986,12 +993,19 @@ const actions = {
     const te = state.teamEdit;
     if (!te.active) { actions.addTeam(); }
     const act = te.teams.find((t) => t.id === te.active);
+    const owner = te.teams.find((t) => t.members.includes(d.id));
+    if (owner && owner !== act) return toast(`${memberName(d.id)} 님은 이미 ${owner.name}이에요. ${owner.name}에서 먼저 빼 주세요`);
     if (act.members.includes(d.id)) act.members = act.members.filter((x) => x !== d.id);
-    else { te.teams.forEach((t) => (t.members = t.members.filter((x) => x !== d.id))); act.members.push(d.id); }
+    else act.members.push(d.id);
     render(true);
   },
   randomTeams(d) {
     const ev = currentEvent();
+    const gNow = ev?.scoring?.games?.find((x) => x.id === state.teamEdit.g);
+    if (gNow && hasResults(gNow)) {
+      if (!confirm("랜덤으로 다시 짜면 팀이 새로 만들어져서, 저장할 때 이 종목의 기존 결과가 초기화돼요. 계속할까요?\n(새로 온 사람만 넣으려면 팀을 고르고 이름을 탭하세요)")) return;
+      state.teamEdit.resetOnSave = true;
+    }
     const att = ev?.attendees?.length ? ev.attendees : state.members.filter((m) => m.active !== false).map((m) => m.id);
     if (att.length < 2) return toast("참가자를 먼저 넣어 주세요");
     const ids = shuffle(att);
@@ -1007,16 +1021,29 @@ const actions = {
   async saveTeams(d) {
     const sc = scoringOf(d.id);
     const g = sc.games.find((x) => x.id === state.teamEdit.g);
-    const teams = state.teamEdit.teams.filter((t) => t.members.length).map((t, i) => ({ ...t, name: `${i + 1}팀` }));
+    const te = state.teamEdit;
+    const had = hasResults(g);
+    const reset = had && te.resetOnSave;
+    const kept = te.teams.filter((t) => t.members.length);
+    // 결과가 있으면 팀 이름(번호)을 그대로 두고, 없으면 1팀부터 다시 매김
+    const teams = had && !reset ? kept.map((t) => ({ ...t })) : kept.map((t, i) => ({ ...t, name: `${i + 1}팀` }));
     const b = writeBatch(db);
-    if (hasResults(g) && JSON.stringify(g.teams) !== JSON.stringify(teams)) {
-      if (!confirm("팀이 바뀌면 이 종목의 기존 결과가 초기화됩니다. 계속할까요?")) return;
+    if (reset) {
       resetGameResults(g, b);
+    } else if (had) {
+      // 기존 결과는 유지. 결과가 있던 팀을 없앤 경우에만 확인
+      const gone = (g.teams || []).filter((t) => !teams.some((x) => x.id === t.id));
+      const goneWithResults = gone.filter((t) => Object.keys(g.league || {}).some((k) => k.split("|").includes(t.id) && (g.league[k].r || []).some(Boolean))
+        || g.ranks?.[t.id]);
+      if (goneWithResults.length && !confirm(`${goneWithResults.map((t) => t.name).join(", ")}의 경기 결과는 대진표·순위에서 빠져요. 계속할까요?`)) return;
+      gone.forEach((t) => { if (g.ranks) delete g.ranks[t.id]; if (g.records) delete g.records[t.id]; });
     }
     g.teams = teams;
     b.update(doc(db, "events", d.id), { scoring: sc });
     await b.commit();
-    state.teamEdit = null; toast(`${teams.length}개 팀을 저장했습니다`); render(true);
+    state.teamEdit = null;
+    toast(reset ? `${teams.length}개 팀을 새로 저장했어요 (기존 결과 초기화)` : had ? `팀을 저장했어요 · 기존 결과는 그대로예요` : `${teams.length}개 팀을 저장했습니다`);
+    render(true);
   },
   // ---- 탁구 리그 ----
   toggleTie(d) { state.tieOpen = state.tieOpen === d.k ? null : d.k; state.rubberPick = null; render(true); },
@@ -1046,6 +1073,16 @@ const actions = {
       : x.decided ? `${teamOf(g, x.winner).name} 승리 확정 (${score}) · 남은 경기도 입력하세요` : "저장했습니다");
     if (x.done) state.tieOpen = null;
     render(true);
+  },
+  async resetGame(d) {
+    const sc = scoringOf(d.id);
+    const g = sc.games.find((x) => x.id === d.g);
+    if (!g || !confirm(`'${g.name}'의 결과를 모두 지울까요?\n팀 편성은 그대로 두고, 대진 결과·순위·기록만 지워져요. 리그 단식 기록도 개인 전적에서 빠져요.`)) return;
+    const b = writeBatch(db);
+    resetGameResults(g, b);
+    b.update(doc(db, "events", d.id), { scoring: sc });
+    await b.commit();
+    state.tieOpen = null; toast(`${g.name} 결과를 초기화했어요`); render(true);
   },
   async closeLeague(d) {
     const sc = scoringOf(d.id);
