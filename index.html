@@ -15,7 +15,7 @@
   <title>티원 탁구동호회</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&display=swap">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
   <header class="top">
@@ -46,6 +46,21 @@
   <div id="modal" class="modal hidden"></div>
   <div id="toast" class="toast"></div>
 
-  <script type="module" src="app.js"></script>
+  <!-- 앱을 끝내 불러오지 못하면(오래된 휴대폰·앱 안 브라우저·연결 차단) 안내를 보여 줌 -->
+  <script>
+    (function () {
+      function help(msg) {
+        if (window.__toneReady) return;
+        var v = document.getElementById("view");
+        if (!v || v.querySelector(".load-help")) return;
+        v.innerHTML = '<section class="card load-help"><h2>화면을 불러오지 못했어요</h2><p class="hint lead">' + msg + '</p>' +
+          '<button class="btn primary block" onclick="location.replace(location.pathname+\'?r=\'+Date.now()+location.hash)">새로고침</button>' +
+          '<p class="hint">카카오톡에서 계속 안 열리면 화면의 <b>⋮</b>(아이폰은 아래 <b>공유</b>) 버튼 → <b>다른 브라우저로 열기</b>를 눌러 Chrome·Safari·삼성 인터넷으로 열어 주세요.</p></section>';
+      }
+      window.addEventListener("error", function () { setTimeout(function () { help("일시적인 오류가 생겼어요. 새로고침해 주세요."); }, 1500); });
+      setTimeout(function () { help("인터넷 연결이 느리거나 이 브라우저에서 연결이 막혔을 수 있어요."); }, 15000);
+    })();
+  </script>
+  <script type="module" src="app.js?v=3"></script>
 </body>
 </html>

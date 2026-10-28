@@ -3,7 +3,7 @@
 // =====================================================================
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
-  getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
+  initializeFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
   onSnapshot, query, where, serverTimestamp, writeBatch
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
@@ -115,8 +115,20 @@ if (firebaseConfig.apiKey.startsWith("YOUR")) {
   throw new Error("firebaseConfig 미설정");
 }
 
+// 예전 index.html(캐시)과 새 app.js가 섞여 열린 경우: 한 번만 새로 받아오기
+if (!document.querySelector(".nav") || !document.getElementById("editbar")) {
+  let tried = false;
+  try { tried = sessionStorage.getItem("tone.reloaded") === "1"; sessionStorage.setItem("tone.reloaded", "1"); } catch { /* 무시 */ }
+  if (!tried) { location.replace(location.pathname + "?r=" + Date.now() + location.hash); throw new Error("예전 화면 → 새로고침"); }
+  if (!document.getElementById("editbar")) {
+    const bar = document.createElement("div"); bar.id = "editbar"; bar.className = "editbar"; bar.hidden = true;
+    (document.querySelector("header") || document.body.firstChild).after(bar);
+  }
+}
+
 const fbApp = initializeApp(firebaseConfig);
-const db = getFirestore(fbApp);
+// 카카오톡 등 앱 안 브라우저에서도 연결되도록 연결 방식 자동 선택
+const db = initializeFirestore(fbApp, { experimentalAutoDetectLongPolling: true });
 const auth = getAuth(fbApp);
 
 // ---------------------------------------------------------------------
@@ -148,7 +160,18 @@ const byName = (ids) => ids.map((id) => ({ id, name: memberName(id) }))
 // ---------------------------------------------------------------------
 //  실시간 구독
 // ---------------------------------------------------------------------
-const onErr = (e) => { console.error(e); toast("데이터를 불러오지 못했습니다: " + e.code); };
+const onErr = (e) => { console.error(e); state.loadError = e.code || "error"; toast("데이터를 불러오지 못했습니다: " + e.code); render(true); };
+// 불러오는 중 표시 (오래 걸리거나 오류가 나면 도움말)
+const reloadBtn = `<button class="btn primary block" onclick="location.replace(location.pathname + '?r=' + Date.now() + location.hash)">새로고침</button>`;
+const openHelp = `<p class="hint">카카오톡에서 계속 안 열리면 화면의 <b>⋮</b>(아이폰은 아래 <b>공유</b>) 버튼 → <b>다른 브라우저로 열기</b>를 눌러 Chrome·Safari·삼성 인터넷으로 열어 주세요.</p>`;
+function loadingBox() {
+  if (state.loadError) return `<section class="card load-help"><h2>데이터를 불러오지 못했어요</h2>
+    <p class="hint lead">인터넷 연결을 확인하고 새로고침해 주세요. (${esc(state.loadError)})</p>${reloadBtn}${openHelp}</section>`;
+  if (state.slow) return `<section class="card load-help"><h2>연결이 늦어지고 있어요</h2>
+    <p class="hint lead">조금 더 기다리거나 새로고침해 주세요.</p>${reloadBtn}${openHelp}</section>`;
+  return `<p class="empty">불러오는 중…</p>`;
+}
+setTimeout(() => { if (!state.loaded.events) { state.slow = true; render(true); } }, 10000);
 
 onSnapshot(collection(db, "members"), (s) => {
   state.members = s.docs.map((d) => ({ id: d.id, ...d.data() }))
@@ -159,7 +182,7 @@ onSnapshot(collection(db, "members"), (s) => {
 onSnapshot(collection(db, "events"), (s) => {
   state.events = s.docs.map((d) => ({ id: d.id, ...d.data() }))
     .sort((a, b) => b.date.localeCompare(a.date));
-  state.loaded.events = true; render();
+  state.loaded.events = true; state.slow = false; state.loadError = null; window.__toneReady = true; render();
 }, onErr);
 
 function watchMatches(year) {
@@ -275,7 +298,7 @@ const eventFields = (ev = {}) => `
 // ----- 일정(행사 목록) -----------------------------------------------
 function viewHome() {
   watchMatches(state.year);
-  if (!state.loaded.events) return `<p class="empty">불러오는 중…</p>`;
+  if (!state.loaded.events) return loadingBox();
   const admin = isAdmin();
   const evs = state.events.filter((e) => e.year === state.year);
   const cnt = {};
@@ -327,7 +350,7 @@ function viewEvent(id) {
   const ev = state.events.find((e) => e.id === id);
   if (!ev) return state.loaded.events
     ? `<section class="card"><p class="empty">모임을 찾을 수 없어요.</p><a class="back" href="#/">${IC.left}일정으로</a></section>`
-    : `<p class="empty">불러오는 중…</p>`;
+    : loadingBox();
   watchMatches(ev.year);
 
   const att = ev.attendees || [];
@@ -787,7 +810,7 @@ function matchInput(ev, att) {
 function viewRanking() {
   watchMatches(state.year);
   const shell = (inner) => `<section class="card"><div class="sec-head"><h2>연간 순위</h2>${yearNav()}</div>${inner}</section>`;
-  if (!state.loaded.events || !state.loaded.matches || !state.loaded.members) return shell(`<p class="empty">불러오는 중…</p>`);
+  if (!state.loaded.events || !state.loaded.matches || !state.loaded.members) return state.loaded.events ? shell(`<p class="empty">불러오는 중…</p>`) : loadingBox();
   const t = today();
   const evs = state.events.filter((e) => e.year === state.year && e.date <= t).sort((a, b) => a.date.localeCompare(b.date));
   const total = evs.length;

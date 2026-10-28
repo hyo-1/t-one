@@ -552,3 +552,5 @@ details.fold[open] > summary .nt-chev { transform: rotate(180deg); }
 .free-btn { background: #fff; margin: 0 0 12px; min-height: 48px; }
 .free-btn small { color: var(--muted); font-weight: 500; margin-left: 4px; }
 .card.free-input { padding: 14px; }
+.load-help h2 { font-size: 17px; font-weight: 800; color: var(--navy); margin-bottom: 8px; }
+.load-help .btn { margin-bottom: 4px; }
