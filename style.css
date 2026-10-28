@@ -484,3 +484,58 @@ label.inline select, label.inline input { width: auto; min-height: 34px; padding
 .officer b { font-size: 15px; color: var(--navy); }
 .officer .role { background: var(--blue); }
 .nt-ic .ic { width: 20px; height: 20px; }
+
+/* ===== 개인 기록 창 (아래에서 올라오는 시트) ===== */
+.click { cursor: pointer; }
+.member-grid span.click:active, .officer.click:active, .att-list li.click:active { background: var(--blue-100); }
+.modal.sheet-mode { align-items: end; padding: 0; }
+.sheet {
+  background: #fff; width: 100%; max-width: 560px; margin: 0 auto; max-height: 88vh; display: flex; flex-direction: column;
+  border-radius: 20px 20px 0 0; box-shadow: 0 -10px 40px rgba(11, 42, 85, 0.2); padding-bottom: env(safe-area-inset-bottom);
+  animation: sheet-up 0.22s ease-out;
+}
+@keyframes sheet-up { from { transform: translateY(30px); opacity: 0; } to { transform: none; opacity: 1; } }
+.sheet-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 18px 18px 12px; }
+.sheet-head .kicker { font-size: 12px; font-weight: 700; color: var(--blue); }
+.sheet-head h2 { font-size: 21px; font-weight: 800; color: var(--navy); display: flex; align-items: center; gap: 8px; }
+.pl-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 0 18px 14px; border-bottom: 1px solid var(--line); }
+.pl-stats > div { background: var(--blue-50); border-radius: var(--r-md); padding: 9px 10px; display: flex; flex-direction: column; }
+.pl-stats span { font-size: 11.5px; color: var(--muted); font-weight: 700; }
+.pl-stats b { font-size: 19px; font-weight: 800; color: var(--navy); font-variant-numeric: tabular-nums; line-height: 1.3; }
+.pl-stats b small { font-size: 12px; color: var(--muted); margin-left: 1px; }
+.pl-stats em { font-style: normal; font-size: 12px; font-weight: 700; color: var(--blue); }
+.sheet-body { overflow-y: auto; padding: 4px 18px 20px; -webkit-overflow-scrolling: touch; }
+.pl-sec { padding-top: 14px; }
+.pl-sec h3 { font-size: 15.5px; font-weight: 800; color: var(--navy); margin-bottom: 8px; }
+.pl-sec h3 .count { font-size: 12.5px; color: var(--muted); font-weight: 600; margin-left: 4px; }
+.pl-sub { font-size: 12px; font-weight: 700; color: var(--muted); margin: 10px 0 6px; }
+.vs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; }
+.vs-grid > div { display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; font-size: 13.5px; }
+.vs-grid span { font-weight: 600; color: var(--navy); }
+.vs-grid b { font-size: 12.5px; color: var(--muted); font-weight: 700; }
+.vs-grid em { font-style: normal; }
+.pl-ev { border: 1px solid var(--line); border-radius: var(--r-md); margin-bottom: 8px; overflow: hidden; }
+.pl-ev-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: var(--blue-50); padding: 8px 12px; font-size: 13px; color: var(--muted); }
+.pl-ev-head b { color: var(--navy); }
+.pl-rec { font-weight: 800; color: var(--navy); white-space: nowrap; }
+.pl-matches { list-style: none; margin: 0; padding: 2px 12px; }
+.pl-matches li { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; flex-wrap: wrap; }
+.pl-matches li:last-child { border-bottom: 0; }
+.pl-matches .res { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; font-size: 12px; font-weight: 800; flex: none; }
+.pl-matches .res.w { background: var(--blue); color: #fff; }
+.pl-matches .res.l { background: #eef2f6; color: var(--muted); }
+.pl-matches .opp { flex: 1; color: var(--muted); }
+.pl-matches .opp b { color: var(--navy); }
+.pl-att { list-style: none; margin: 0; padding: 0; }
+.pl-att li { display: flex; align-items: center; gap: 10px; padding: 9px 2px; border-bottom: 1px solid var(--line); font-size: 14px; color: var(--muted); }
+.pl-att li:last-child { border-bottom: 0; }
+.pl-att li i { width: 10px; height: 10px; border-radius: 50%; background: var(--line); flex: none; }
+.pl-att li.on i { background: var(--blue); }
+.pl-att li > span:not(.st) { flex: 1; }
+.pl-att li b { color: var(--navy); }
+.pl-att .st { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #eef2f6; }
+.pl-att li.on .st { background: var(--blue-100); color: var(--blue); }
+@media (min-width: 700px) {
+  .modal.sheet-mode { align-items: center; padding: 16px; }
+  .sheet { border-radius: 20px; max-height: 84vh; }
+}
