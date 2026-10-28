@@ -74,6 +74,9 @@ const PRESET_EVENT = {
 내년부터는 모임 참여도를 높이기 위해 출석률을 기준으로도 상품을 지급할 예정입니다.
 꾸준히 참석해주시는 분들이 혜택을 받을 수 있도록 하겠습니다! 🙏`,
 };
+// 직책 (회원 탭에서 관리자가 바꿀 수 있고, 따로 정하지 않으면 아래 값을 사용)
+const DEFAULT_ROLES = { "김효원": "회장", "성준형": "총무" };
+const ROLE_ORDER = ["회장", "부회장", "총무"];
 // 회원 탭에서 한 번에 불러올 기본 명단
 const DEFAULT_MEMBERS = ["김효원", "김용채", "김재훈", "김진", "김충희", "김형태", "노동호", "강동식", "류동흠", "박범준", "박찬우",
   "선우혁", "성준형", "송예영", "김승혁", "신동호", "유탁민", "윤홍균", "이호열", "정가람", "최자헌", "최형구"];
@@ -132,6 +135,9 @@ const state = {
   sortBy: "points", minGames: 0,
 };
 const isAdmin = () => !!state.user && ADMIN_EMAILS.includes(state.user.email);
+const roleOf = (m) => (m && (m.role ?? DEFAULT_ROLES[m.name])) || "";
+const roleRank = (m) => { const r = roleOf(m); if (!r) return 99; const i = ROLE_ORDER.indexOf(r); return i < 0 ? 50 : i; };
+const roleTag = (m) => (roleOf(m) ? `<span class="role">${esc(roleOf(m))}</span>` : "");
 const memberName = (id) => state.members.find((m) => m.id === id)?.name ?? "(삭제된 회원)";
 const byName = (ids) => ids.map((id) => ({ id, name: memberName(id) }))
   .sort((a, b) => a.name.localeCompare(b.name, "ko"));
@@ -664,29 +670,43 @@ function leagueView(ev, g, scale, admin) {
 }
 
 function rubberRow(ev, g, key, A, B, idx, label, r, admin) {
+  // 왼쪽 = A팀, 오른쪽 = B팀 으로 항상 고정 (대진 위의 팀 표시와 같은 방향)
+  const side = (html, cls = "") => `<span class="rb-side ${cls}">${html}</span>`;
+  const row = (left, right, extra = "", cls = "") => `<div class="rubber ${cls}"><span class="rb-label">${label}</span>
+    <div class="rb-vs">${left}<span class="rb-x">vs</span>${right}</div>${extra}</div>`;
+  const winMark = '<i class="win-mark">승</i>';
   const done = r && r.w;
   if (done) {
-    const desc = idx < 2 && r.winner
-      ? `<b class="w">${esc(memberName(r.winner))}</b> 승 <span class="muted">vs ${esc(memberName(r.loser))}</span>`
-      : `<b class="w">${esc(teamOf(g, r.w)?.name)}</b> 승`;
-    return `<div class="rubber"><span class="rb-label">${label}</span><span class="rb-res">${desc}</span>
-      ${admin ? `<button class="x-btn" data-act="clearRubber" data-id="${ev.id}" data-g="${g.id}" data-k="${key}" data-i="${idx}" aria-label="지우기">지우기</button>` : ""}</div>`;
+    const aWin = r.w === A.id;
+    let left, right;
+    if (idx < 2 && r.winner) {
+      const aP = aWin ? r.winner : r.loser, bP = aWin ? r.loser : r.winner;
+      left = side(`${esc(memberName(aP))}${aWin ? winMark : ""}`, aWin ? "win" : "lose");
+      right = side(`${!aWin ? winMark : ""}${esc(memberName(bP))}`, `r ${!aWin ? "win" : "lose"}`);
+    } else {
+      left = side(`${esc(A.name)}${aWin ? winMark : ""}`, aWin ? "win" : "lose");
+      right = side(`${!aWin ? winMark : ""}${esc(B.name)}`, `r ${!aWin ? "win" : "lose"}`);
+    }
+    return row(left, right, admin ? `<button class="x-btn" data-act="clearRubber" data-id="${ev.id}" data-g="${g.id}" data-k="${key}" data-i="${idx}" aria-label="지우기">지우기</button>` : "");
   }
-  if (!admin) return `<div class="rubber"><span class="rb-label">${label}</span><span class="rb-res muted">경기 전</span></div>`;
+  if (!admin) return row(side("-", "dim"), side("-", "r dim"));
   const pick = state.rubberPick;
-  if (idx === 2) return `<div class="rubber"><span class="rb-label">${label}</span><span class="rb-btns">
-      ${[A, B].map((T) => `<button class="pick sm" data-act="setRubber" data-id="${ev.id}" data-g="${g.id}" data-k="${key}" data-i="2" data-w="${T.id}">${esc(T.name)} 승</button>`).join("")}</span></div>`;
-  if (pick && pick.k === key && pick.i === idx) {
-    const winTeam = (A.members || []).includes(pick.winner) ? A : B;
-    const opp = winTeam === A ? B : A;
-    return `<div class="rubber picking"><span class="rb-label">${label}</span><div class="rb-step">
-      <span><b class="w">${esc(memberName(pick.winner))}</b> 님이 이긴 상대는?</span>
-      <span class="rb-btns">${(opp.members || []).map((id) => `<button class="pick sm lose" data-act="setRubber" data-id="${ev.id}" data-g="${g.id}" data-k="${key}" data-i="${idx}" data-w="${winTeam.id}" data-winner="${pick.winner}" data-loser="${id}">${esc(memberName(id))}</button>`).join("")}
-      <button class="btn ghost xs" data-act="cancelRubber">취소</button></span></div></div>`;
+  if (idx === 2) {
+    const btn = (T) => `<button class="pick sm" data-act="setRubber" data-id="${ev.id}" data-g="${g.id}" data-k="${key}" data-i="2" data-w="${T.id}">${esc(T.name)} 승</button>`;
+    return row(side(btn(A)), side(btn(B), "r"));
   }
-  return `<div class="rubber"><span class="rb-label">${label}</span><span class="rb-btns">
-    <span class="hint inline">이긴 사람</span>
-    ${[...(A.members || []), ...(B.members || [])].map((id) => `<button class="pick sm" data-act="pickRubberWinner" data-k="${key}" data-i="${idx}" data-p="${id}">${esc(memberName(id))}</button>`).join("")}</span></div>`;
+  if (pick && pick.k === key && pick.i === idx) {
+    // 이긴 사람이 정해졌으면: 이긴 쪽은 이름 고정, 반대쪽에서 진 상대를 고름
+    const aWin = (A.members || []).includes(pick.winner);
+    const winTeam = aWin ? A : B, opp = aWin ? B : A;
+    const fixed = `<b class="w">${esc(memberName(pick.winner))}</b>${winMark}`;
+    const choose = (opp.members || []).map((id) => `<button class="pick sm lose" data-act="setRubber" data-id="${ev.id}" data-g="${g.id}" data-k="${key}" data-i="${idx}" data-w="${winTeam.id}" data-winner="${pick.winner}" data-loser="${id}">${esc(memberName(id))}</button>`).join("");
+    const left = aWin ? side(fixed, "win") : side(choose);
+    const right = aWin ? side(choose, "r") : side(fixed, "r win");
+    return row(left, right, `<div class="rb-help">진 상대를 고르세요 <button class="btn ghost xs" data-act="cancelRubber">취소</button></div>`, "picking");
+  }
+  const btns = (T) => (T.members || []).map((id) => `<button class="pick sm" data-act="pickRubberWinner" data-k="${key}" data-i="${idx}" data-p="${id}">${esc(memberName(id))}</button>`).join("");
+  return row(side(btns(A)), side(btns(B), "r"), `<div class="rb-help">이긴 사람을 누르세요</div>`);
 }
 
 // 팀 편성 편집기
@@ -812,7 +832,13 @@ function viewMembers() {
   const active = state.members.filter((m) => m.active !== false).length;
   const sleeping = state.members.length - active;
   if (!admin) return `<section class="card"><div class="sec-head"><h2>회원 <span class="count">${active}명</span></h2></div>
-    ${active ? `<div class="member-grid">${state.members.filter((m) => m.active !== false).map((m) => `<span class="${m.id === state.me ? "me" : ""}">${esc(m.name)}</span>`).join("")}</div>`
+    ${active ? (() => {
+      const list = state.members.filter((m) => m.active !== false);
+      const officers = list.filter((m) => roleOf(m)).sort((a, b) => roleRank(a) - roleRank(b));
+      const rest = list.filter((m) => !roleOf(m));
+      return `${officers.length ? `<div class="officers">${officers.map((m) => `<div class="officer"><span class="role">${esc(roleOf(m))}</span><b>${esc(m.name)}</b></div>`).join("")}</div>` : ""}
+        <div class="member-grid">${rest.map((m) => `<span class="${m.id === state.me ? "me" : ""}">${esc(m.name)}</span>`).join("")}</div>`;
+    })()
       : `<p class="empty">${state.loaded.members ? "등록된 회원이 없어요." : "불러오는 중…"}</p>`}</section>`;
 
   const missing = DEFAULT_MEMBERS.filter((n) => !state.members.some((m) => m.name === n));
@@ -825,9 +851,10 @@ function viewMembers() {
       <button class="btn primary block">추가</button></form>`;
   return seed + add + `<section class="card">
     <div class="sec-head"><h2>회원 <span class="count">${active}명${sleeping ? ` · 휴면 ${sleeping}명` : ""}</span></h2></div>
-    ${state.members.length ? `<ul class="members">${state.members.map((m) => `
-      <li class="${m.active === false ? "inactive" : ""}"><span class="nm">${esc(m.name)}${m.active === false ? ` <span class="pill done">휴면</span>` : ""}</span>
+    ${state.members.length ? `<ul class="members">${[...state.members].sort((a, b) => roleRank(a) - roleRank(b)).map((m) => `
+      <li class="${m.active === false ? "inactive" : ""}"><span class="nm">${esc(m.name)} ${roleTag(m)}${m.active === false ? ` <span class="pill done">휴면</span>` : ""}</span>
       <span class="acts">
+        <button class="btn ghost xs" data-act="setRole" data-id="${m.id}">직책</button>
         <button class="btn ghost xs" data-act="renameMember" data-id="${m.id}">이름</button>
         <button class="btn ghost xs" data-act="toggleActive" data-id="${m.id}">${m.active === false ? "복귀" : "휴면"}</button>
         <button class="btn ghost xs danger" data-act="deleteMember" data-id="${m.id}">삭제</button></span></li>`).join("")}</ul>`
@@ -1077,6 +1104,13 @@ const actions = {
     toast("경기 기록을 지웠습니다");
   },
   sort(d) { state.sortBy = d.k; render(true); },
+  async setRole(d) {
+    const m = state.members.find((x) => x.id === d.id);
+    const v = prompt(`${m.name} 님의 직책 (회장, 부회장, 총무 등 · 비우면 직책 없음)`, roleOf(m));
+    if (v === null) return;
+    await updateDoc(doc(db, "members", d.id), { role: v.trim().slice(0, 10) });
+    toast(v.trim() ? `${m.name} 님을 ${v.trim()}(으)로 표시했어요` : `${m.name} 님의 직책을 지웠어요`);
+  },
   async renameMember(d) {
     const name = prompt("새 이름", memberName(d.id))?.trim();
     if (!name || name === memberName(d.id)) return;
