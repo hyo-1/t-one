@@ -8,22 +8,46 @@ service cloud.firestore {
         && request.auth.token.email in ['gydnjshw@naver.com'];
     }
 
-    // 회원: 누구나 보기, 운영진만 수정
+    // 회원: 누구나 보기, 관리자만 수정
     match /members/{id} {
       allow read: if true;
       allow write: if isAdmin();
     }
 
-    // 행사(날짜별 페이지, 참가자 명단): 누구나 보기, 운영진만 수정
+    // 행사(날짜별 페이지, 참가자 명단, 종목·리그 결과): 누구나 보기, 관리자만 수정
     match /events/{id} {
       allow read: if true;
       allow write: if isAdmin();
     }
 
-    // 경기 결과: 누구나 보기, 관리자만 입력·수정·삭제
+    // 경기 기록
     match /matches/{id} {
       allow read: if true;
-      allow write: if isAdmin();
+
+      // 관리자: 무엇이든 입력 (리그 단식 포함)
+      // 로그인 안 한 회원: '자유 경기'만 입력 가능 (그날 참가자끼리, 형식 검사)
+      allow create: if isAdmin() || (
+        request.resource.data.keys().hasOnly(['eventId','date','year','winnerId','loserId','score','createdAt'])
+        && request.resource.data.winnerId is string
+        && request.resource.data.loserId is string
+        && request.resource.data.winnerId != request.resource.data.loserId
+        && request.resource.data.score is string
+        && request.resource.data.score.size() <= 10
+        && request.resource.data.createdAt == request.time
+        && exists(/databases/$(database)/documents/events/$(request.resource.data.eventId))
+        && request.resource.data.winnerId in get(/databases/$(database)/documents/events/$(request.resource.data.eventId)).data.attendees
+        && request.resource.data.loserId in get(/databases/$(database)/documents/events/$(request.resource.data.eventId)).data.attendees
+        && request.resource.data.date == get(/databases/$(database)/documents/events/$(request.resource.data.eventId)).data.date
+        && request.resource.data.year == get(/databases/$(database)/documents/events/$(request.resource.data.eventId)).data.year
+      );
+
+      allow update: if isAdmin();
+
+      // 관리자는 언제나 삭제, 자유 경기는 입력 후 5분 안에 취소 가능
+      allow delete: if isAdmin() || (
+        !('note' in resource.data)
+        && request.time < resource.data.createdAt + duration.value(5, 'm')
+      );
     }
   }
 }
