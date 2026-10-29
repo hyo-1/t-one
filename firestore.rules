@@ -20,6 +20,24 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // 회비 (연도별 문서): 누구나 보기, 관리자만 수정
+    match /fees/{year} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // 모임 사진: 누구나 보기, 관리자만 올리기·삭제 (크기 제한)
+    match /photos/{id} {
+      allow read: if true;
+      allow create: if isAdmin() && request.resource.data.thumb is string && request.resource.data.thumb.size() < 300000;
+      allow delete: if isAdmin();
+    }
+    match /photoFull/{id} {
+      allow read: if true;
+      allow create: if isAdmin() && request.resource.data.data is string && request.resource.data.data.size() < 1000000;
+      allow delete: if isAdmin();
+    }
+
     // 경기 기록
     match /matches/{id} {
       allow read: if true;

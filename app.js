@@ -3,7 +3,7 @@
 // =====================================================================
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
-  initializeFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
+  initializeFirestore, collection, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc,
   onSnapshot, query, where, serverTimestamp, writeBatch
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
@@ -74,6 +74,8 @@ const PRESET_EVENT = {
 내년부터는 모임 참여도를 높이기 위해 출석률을 기준으로도 상품을 지급할 예정입니다.
 꾸준히 참석해주시는 분들이 혜택을 받을 수 있도록 하겠습니다! 🙏`,
 };
+// 모임마다 올릴 수 있는 사진 수 (무료 저장 용량 1GB 기준, 장당 약 0.3~0.5MB로 줄여서 저장)
+const PHOTO_LIMIT = 3;
 // 직책 (회원 탭에서 관리자가 바꿀 수 있고, 따로 정하지 않으면 아래 값을 사용)
 const DEFAULT_ROLES = { "김효원": "회장", "성준형": "총무" };
 const ROLE_ORDER = ["회장", "부회장", "총무"];
@@ -153,7 +155,9 @@ const isAdmin = () => !!state.user && ADMIN_EMAILS.includes(state.user.email);
 const roleOf = (m) => (m && (m.role ?? DEFAULT_ROLES[m.name])) || "";
 const roleRank = (m) => { const r = roleOf(m); if (!r) return 99; const i = ROLE_ORDER.indexOf(r); return i < 0 ? 50 : i; };
 const roleTag = (m) => (roleOf(m) ? `<span class="role">${esc(roleOf(m))}</span>` : "");
-const memberName = (id) => state.members.find((m) => m.id === id)?.name ?? "(삭제된 회원)";
+// 이름 옆 탁구 부수 표시: 김효원(1)
+const dispName = (m) => (m ? m.name + (m.grade ? `(${m.grade})` : "") : "(삭제된 회원)");
+const memberName = (id) => dispName(state.members.find((m) => m.id === id));
 const byName = (ids) => ids.map((id) => ({ id, name: memberName(id) }))
   .sort((a, b) => a.name.localeCompare(b.name, "ko"));
 
@@ -185,6 +189,25 @@ onSnapshot(collection(db, "events"), (s) => {
   state.loaded.events = true; state.slow = false; state.loadError = null; window.__toneReady = true; render();
 }, onErr);
 
+// 사진: photos(작은 미리보기) + photoFull(크게 보기) 두 곳에 나눠 저장 → 목록은 가볍게
+function watchPhotos(year) {
+  if (state.photoYear === year) return;
+  state.unsubPhotos?.();
+  state.photoYear = year; state.photos = null;
+  state.unsubPhotos = onSnapshot(query(collection(db, "photos"), where("year", "==", year)),
+    (q) => { state.photos = q.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => ts(a) - ts(b)); render(); }, onErr);
+}
+const photosOf = (eventId) => (state.photos || []).filter((x) => x.eventId === eventId);
+
+// 회비: fees/{연도} 문서 하나 = { paid: { 회원ID: [납부한 달] }, balance, balanceDate, memo }
+function watchFees(year) {
+  if (state.feeYear === year) return;
+  state.unsubFees?.();
+  state.feeYear = year; state.fees = null;
+  state.unsubFees = onSnapshot(doc(db, "fees", String(year)),
+    (d) => { state.fees = d.exists() ? d.data() : {}; render(); }, onErr);
+}
+
 function watchMatches(year) {
   if (state.matchYear === year) return;
   state.unsubMatches?.();
@@ -202,7 +225,7 @@ onAuthStateChanged(auth, (u) => { state.user = u; render(); });
 window.addEventListener("hashchange", () => {
   state.pick = { winner: null, loser: null, score: "" };
   state.editAttend = false; state.editEvent = false; state.showNewEvent = false; state.placePick = null;
-  state.teamEdit = null; state.tieOpen = null; state.rubberPick = null; state.freeInput = false;
+  state.teamEdit = null; state.tieOpen = null; state.rubberPick = null; state.freeInput = false; state.editBalance = false;
   render(true);
   window.scrollTo(0, 0);
 });
@@ -274,6 +297,8 @@ function render(force = false) {
   if (route === "event") html = viewEvent(id);
   else if (route === "ranking") html = viewRanking();
   else if (route === "members") html = viewMembers();
+  else if (route === "fees") html = viewFees();
+  else if (route === "photos") html = viewPhotos();
   else html = viewHome();
 
   if (state.user && !admin) {
@@ -385,7 +410,7 @@ function viewEvent(id) {
     const pool = state.members.filter((m) => m.active !== false || att.includes(m.id));
     attBody = pool.length ? `
       <p class="hint lead">탭해서 참가자를 고르세요 · <b>${state.attendDraft.size}명</b> 선택</p>
-      <div class="chips wrap">${pool.map((m) => `<button class="chip ${state.attendDraft.has(m.id) ? "on" : ""}" data-act="toggleAttend" data-id="${m.id}">${esc(m.name)}</button>`).join("")}</div>
+      <div class="chips wrap">${pool.map((m) => `<button class="chip ${state.attendDraft.has(m.id) ? "on" : ""}" data-act="toggleAttend" data-id="${m.id}">${esc(dispName(m))}</button>`).join("")}</div>
       <form class="quick-add" data-form="quickMember"><input name="name" placeholder="명단에 없는 사람 바로 추가 (이름)" autocomplete="off"><button class="btn">추가</button></form>
       <div class="row"><button class="btn ghost sm" data-act="attendAll">전체 선택</button><button class="btn ghost sm" data-act="attendNone">전체 해제</button>
         <span class="spacer"></span><button class="btn ghost" data-act="cancelAttend">취소</button>
@@ -446,8 +471,14 @@ function viewEvent(id) {
       ${admin ? "" : `<p class="hint">잘못 입력했다면 입력한 휴대폰에서 ${UNDO_MINUTES}분 안에 ‘취소’할 수 있어요. 그 뒤에는 관리자에게 말해 주세요.</p>`}`
       : `<p class="empty">아직 입력된 경기가 없어요.</p>`}`);
 
-  if (!admin) return head + noticeSection + inputSection + scoringSection(ev, att) + tallySection + attSection + logSection + freeInput;
-  return head + noticeSection + attSection + inputSection + scoringSection(ev, att) + tallySection + logSection + freeInput;
+  watchPhotos(ev.year);
+  const evPhotos = photosOf(ev.id);
+  const photoSection = evPhotos.length || admin ? `<section class="card">
+    <div class="sec-head"><h2>모임 사진 <span class="count">${evPhotos.length}/${PHOTO_LIMIT}</span></h2><a class="more" href="#/photos">사진첩 ${IC.right}</a></div>
+    ${photoGrid(ev, admin)}</section>` : "";
+
+  if (!admin) return head + noticeSection + inputSection + scoringSection(ev, att) + photoSection + tallySection + attSection + logSection + freeInput;
+  return head + noticeSection + attSection + inputSection + scoringSection(ev, att) + tallySection + logSection + freeInput + photoSection;
 }
 
 // ----- 종합 점수 (종목별 순위 → 점수 합산) -------------------------
@@ -864,7 +895,7 @@ function viewRanking() {
     const cnt = {};
     evs.forEach((e) => (e.attendees || []).forEach((id) => (cnt[id] = (cnt[id] || 0) + 1)));
     const rows = withRank(state.members.filter((m) => m.active !== false || cnt[m.id])
-      .map((m) => ({ id: m.id, name: m.name, att: cnt[m.id] || 0 }))
+      .map((m) => ({ id: m.id, name: dispName(m), att: cnt[m.id] || 0 }))
       .sort((a, b) => b.att - a.att || a.name.localeCompare(b.name, "ko")), (r) => r.att);
     const full = total && rows.filter((r) => r.att === total).length;
     body = `<div class="stat-row"><div class="stat"><span>진행된 모임</span><b>${total}<small>회</small></b></div>
@@ -880,6 +911,153 @@ function viewRanking() {
   return shell(segs + body);
 }
 
+// ----- 사진첩 -------------------------------------------------------
+function photoGrid(ev, admin) {
+  const list = photosOf(ev.id);
+  const busy = state.uploading?.[ev.id];
+  const tiles = list.map((x) => `<button class="ph" data-act="openPhoto" data-id="${x.id}" aria-label="사진 크게 보기">
+      <img src="${x.thumb}" alt="${esc(ev.title)} 사진" loading="lazy"></button>`).join("");
+  const add = admin && list.length < PHOTO_LIMIT ? (busy
+    ? `<div class="ph add busy"><span>${esc(busy)}</span></div>`
+    : `<label class="ph add">${IC.plus}<span>사진 추가</span>
+        <input type="file" accept="image/*" ${PHOTO_LIMIT - list.length > 1 ? "multiple" : ""} data-chg="photoFiles" data-id="${ev.id}" hidden></label>`) : "";
+  if (!tiles && !add) return `<p class="empty">아직 사진이 없어요.</p>`;
+  return `<div class="ph-grid">${tiles}${add}</div>`;
+}
+
+function viewPhotos() {
+  watchPhotos(state.year);
+  const admin = isAdmin();
+  const shell = (inner) => `<section class="card"><div class="sec-head"><h2>사진첩</h2>${yearNav()}</div>${inner}</section>`;
+  if (!state.loaded.events) return loadingBox();
+  if (state.photos == null) return shell(`<p class="empty">불러오는 중…</p>`);
+  const t = today();
+  const evs = state.events.filter((e) => e.year === state.year && (photosOf(e.id).length || (admin && e.date <= t)))
+    .sort((a, b) => b.date.localeCompare(a.date));
+  if (!evs.length) return shell(`<p class="empty">${state.year}년에 올라온 모임 사진이 없어요.</p>`);
+  const total = (state.photos || []).length;
+  return shell(`<p class="hint lead">${state.year}년 모임 ${evs.length}회 · 사진 ${total}장${admin ? ` · 모임마다 최대 ${PHOTO_LIMIT}장까지 올릴 수 있어요. 휴대폰 사진은 보기 좋은 크기로 자동으로 줄여서 저장돼요.` : ""}</p>
+    ${evs.map((e) => `<div class="album-ev">
+      <a class="album-head" href="#/event/${e.id}"><span class="ev-date sm"><small>${Number(e.date.slice(5, 7))}월</small><b>${Number(e.date.slice(8, 10))}</b></span>
+        <span class="album-title"><b>${esc(e.title)}</b><span>${fmtDate(e.date)}${e.place ? " · " + esc(e.place) : ""}</span></span><span class="chev">${IC.right}</span></a>
+      ${photoGrid(e, admin)}</div>`).join("")}`);
+}
+
+// 사진 줄이기: 긴 쪽 1600px JPEG (1MB 이하), 미리보기 480px
+async function loadImage(file) {
+  if (window.createImageBitmap) { try { return await createImageBitmap(file, { imageOrientation: "from-image" }); } catch { /* 아래 방식으로 */ } }
+  return await new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = () => rej(new Error("사진을 열 수 없어요. (아이폰 HEIC 사진이면 ‘가장 호환성 높은 형식’으로 찍거나 다른 사진을 골라 주세요)"));
+    img.src = URL.createObjectURL(file);
+  });
+}
+function encodeImage(img, max, q) {
+  const w0 = img.width, h0 = img.height, sc = Math.min(1, max / Math.max(w0, h0));
+  const c = document.createElement("canvas");
+  c.width = Math.round(w0 * sc); c.height = Math.round(h0 * sc);
+  const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+  return { url: c.toDataURL("image/jpeg", q), w: c.width, h: c.height };
+}
+async function compressPhoto(file) {
+  const img = await loadImage(file);
+  let full = encodeImage(img, 1600, 0.82);
+  if (full.url.length > 900000) full = encodeImage(img, 1280, 0.75);
+  if (full.url.length > 900000) full = encodeImage(img, 1024, 0.7);
+  const thumb = encodeImage(img, 480, 0.72);
+  return { full, thumb };
+}
+
+// 크게 보기
+const photoCache = {};
+async function showPhoto(id) {
+  const list = state.photos || [];
+  const x = list.find((p) => p.id === id);
+  if (!x) return closeModal();
+  const ev = state.events.find((e) => e.id === x.eventId);
+  const same = list.filter((p) => p.eventId === x.eventId);
+  const i = same.findIndex((p) => p.id === id);
+  const prev = same[i - 1], next = same[i + 1];
+  state.viewPhoto = id;
+  $("#modal").innerHTML = `<div class="lightbox">
+    <div class="lb-top"><div><b>${ev ? esc(ev.title) : "모임 사진"}</b><span>${fmtDate(x.date)} · ${i + 1}/${same.length}</span></div>
+      <button class="lb-x" data-act="closeModal" aria-label="닫기">닫기</button></div>
+    <div class="lb-img"><img id="lbImg" src="${photoCache[id] || x.thumb}" alt=""></div>
+    <div class="lb-nav">
+      <button class="lb-btn" ${prev ? `data-act="openPhoto" data-id="${prev.id}"` : "disabled"} aria-label="이전">${IC.left}</button>
+      ${isAdmin() ? `<button class="lb-del" data-act="delPhoto" data-id="${id}">삭제</button>` : `<button class="lb-link" data-act="photoToEvent" data-id="${x.eventId}">모임 보기</button>`}
+      <button class="lb-btn" ${next ? `data-act="openPhoto" data-id="${next.id}"` : "disabled"} aria-label="다음">${IC.right}</button></div></div>`;
+  $("#modal").classList.add("lightbox-mode");
+  $("#modal").classList.remove("hidden");
+  if (!photoCache[id]) {
+    try {
+      const d = await getDoc(doc(db, "photoFull", id));
+      if (d.exists()) { photoCache[id] = d.data().data; if (state.viewPhoto === id && $("#lbImg")) $("#lbImg").src = photoCache[id]; }
+    } catch (e) { console.error(e); }
+  }
+}
+
+// ----- 회비 ---------------------------------------------------------
+const won = (n) => Number(n || 0).toLocaleString("ko-KR") + "원";
+const paidOf = (id) => ((state.fees?.paid || {})[id] || []).filter((x) => x >= 1 && x <= 12);
+
+function viewFees() {
+  watchFees(state.year);
+  const admin = isAdmin();
+  const f = state.fees;
+  if (!f || !state.loaded.members) return state.loaded.events ? `<p class="empty">불러오는 중…</p>` : loadingBox();
+
+  // 잔여 회비
+  const hasBal = f.balance != null && f.balance !== "";
+  const balView = state.editBalance && admin ? `<form class="form" data-form="balance">
+      <label class="field"><span>잔여 회비 (원)</span><input name="balance" inputmode="numeric" value="${hasBal ? Number(f.balance) : ""}" placeholder="예) 1250000" required></label>
+      <label class="field"><span>기준일</span><input type="date" name="balanceDate" value="${f.balanceDate || today()}"></label>
+      <label class="field"><span>메모 <small>(선택 · 지출 내역, 다음 모임 예산 등)</small></span><textarea name="memo" rows="3">${esc(f.memo)}</textarea></label>
+      <div class="row"><button type="button" class="btn ghost" data-act="editBalance">취소</button><span class="spacer"></span><button class="btn primary">저장</button></div></form>`
+    : `<div class="bal">
+        <div class="bal-amt">${hasBal ? won(f.balance) : "-"}</div>
+        <div class="bal-date">${hasBal ? `${f.balanceDate ? fmtDate(f.balanceDate) : ""} 기준` : "아직 입력되지 않았어요"}</div>
+        ${f.memo ? `<div class="bal-memo">${linkify(esc(f.memo))}</div>` : ""}
+      </div>
+      <div class="row">
+        ${hasBal ? `<button class="btn primary" data-act="shareBalance">공유하기</button>` : ""}
+        ${admin ? `<button class="btn ghost" data-act="editBalance">${hasBal ? "잔액 수정" : "잔액 입력"}</button>` : ""}</div>`;
+  const balCard = `<section class="card"><div class="sec-head"><h2>잔여 회비</h2><span class="sub">${state.year}년</span></div>${balView}</section>`;
+
+  // 납부 현황
+  const list = state.members.filter((m) => m.active !== false || paidOf(m.id).length)
+    .sort((a, b) => roleRank(a) - roleRank(b) || a.name.localeCompare(b.name, "ko"));
+  const full = list.filter((m) => paidOf(m.id).length === 12).length;
+  const total = list.reduce((n, m) => n + paidOf(m.id).length, 0);
+  const curM = state.year === new Date().getFullYear() ? new Date().getMonth() + 1 : state.year < new Date().getFullYear() ? 12 : 0;
+  const upToDate = curM ? list.filter((m) => { const p = paidOf(m.id); return Array.from({ length: curM }, (_, i) => i + 1).every((x) => p.includes(x)); }).length : 0;
+  const head = `<div class="fee-row fee-head"><span class="fee-nm">이름</span><span class="months">${Array.from({ length: 12 }, (_, i) => `<i class="${i + 1 === curM && state.year === new Date().getFullYear() ? "now" : ""}">${i + 1}</i>`).join("")}</span><span class="fee-cnt">납부</span></div>`;
+  const rows = list.map((m) => {
+    const p = paidOf(m.id);
+    return `<div class="fee-row ${m.id === state.me ? "me" : ""}">
+      <span class="fee-nm click" data-act="player" data-id="${m.id}">${esc(dispName(m))}</span>
+      <span class="months">${Array.from({ length: 12 }, (_, i) => {
+        const on = p.includes(i + 1);
+        return admin ? `<button class="mo ${on ? "on" : ""}" data-act="toggleFee" data-id="${m.id}" data-m="${i + 1}" aria-label="${i + 1}월">${on ? "✓" : ""}</button>`
+          : `<i class="mo ${on ? "on" : ""}" title="${i + 1}월">${on ? "✓" : ""}</i>`;
+      }).join("")}</span>
+      ${admin ? `<button class="fee-cnt btn-cnt ${p.length === 12 ? "full" : ""}" data-act="payYear" data-id="${m.id}" title="연납 처리">${p.length === 12 ? "연납" : `${p.length}/12`}</button>`
+        : `<span class="fee-cnt ${p.length === 12 ? "full" : ""}">${p.length === 12 ? "완납" : `${p.length}/12`}</span>`}</div>`;
+  }).join("");
+  const statusCard = `<section class="card">
+    <div class="sec-head"><h2>회비 납부 현황</h2>${yearNav()}</div>
+    <div class="stat-row three">
+      <div class="stat"><span>완납</span><b>${full}<small>명</small></b></div>
+      ${curM ? `<div class="stat"><span>${curM}월까지 납부</span><b>${upToDate}<small>명</small></b></div>` : ""}
+      <div class="stat"><span>납부 합계</span><b>${total}<small>개월</small></b></div>
+    </div>
+    ${list.length ? `<div class="fee-table">${head}${rows}</div>` : `<p class="empty">회원을 먼저 등록하세요.</p>`}
+    <p class="hint">${admin ? "달 칸을 누르면 그 달 납부/미납이 바뀌고, 오른쪽 <b>납부 개월 수</b>를 누르면 12개월 한 번에 <b>연납 처리</b>돼요. " : ""}파란 칸이 납부한 달이에요. 이름을 누르면 개인 기록을 볼 수 있어요.</p></section>`;
+
+  return balCard + statusCard;
+}
+
 // ----- 회원 ---------------------------------------------------------
 function viewMembers() {
   const admin = isAdmin();
@@ -890,8 +1068,9 @@ function viewMembers() {
       const list = state.members.filter((m) => m.active !== false);
       const officers = list.filter((m) => roleOf(m)).sort((a, b) => roleRank(a) - roleRank(b));
       const rest = list.filter((m) => !roleOf(m));
-      return `${officers.length ? `<div class="officers">${officers.map((m) => `<div class="officer click" data-act="player" data-id="${m.id}"><span class="role">${esc(roleOf(m))}</span><b>${esc(m.name)}</b></div>`).join("")}</div>` : ""}
-        <div class="member-grid">${rest.map((m) => `<span class="click ${m.id === state.me ? "me" : ""}" data-act="player" data-id="${m.id}">${esc(m.name)}</span>`).join("")}</div>`;
+      return `${officers.length ? `<div class="officers">${officers.map((m) => `<div class="officer click" data-act="player" data-id="${m.id}"><span class="role">${esc(roleOf(m))}</span><b>${esc(dispName(m))}</b>${m.id === state.me ? '<em class="me-tag">나</em>' : ""}</div>`).join("")}</div>` : ""}
+        ${state.me ? `<p class="hint lead">파란색 <em class="me-tag">나</em> 표시는 이 휴대폰에서 ‘내 이름’으로 고른 사람이에요. <button class="link-btn" data-act="clearMe">해제</button></p>` : ""}
+        <div class="member-grid">${rest.map((m) => `<span class="click ${m.id === state.me ? "me" : ""}" data-act="player" data-id="${m.id}">${esc(dispName(m))}${m.id === state.me ? '<em class="me-tag">나</em>' : ""}</span>`).join("")}</div>`;
     })()
       : `<p class="empty">${state.loaded.members ? "등록된 회원이 없어요." : "불러오는 중…"}</p>`}</section>`;
 
@@ -906,14 +1085,16 @@ function viewMembers() {
   return seed + add + `<section class="card">
     <div class="sec-head"><h2>회원 <span class="count">${active}명${sleeping ? ` · 휴면 ${sleeping}명` : ""}</span></h2></div>
     ${state.members.length ? `<ul class="members">${[...state.members].sort((a, b) => roleRank(a) - roleRank(b)).map((m) => `
-      <li class="${m.active === false ? "inactive" : ""}"><span class="nm">${esc(m.name)} ${roleTag(m)}${m.active === false ? ` <span class="pill done">휴면</span>` : ""}</span>
+      <li class="${m.active === false ? "inactive" : ""}"><span class="nm">${esc(dispName(m))} ${roleTag(m)}${m.active === false ? ` <span class="pill done">휴면</span>` : ""}</span>
       <span class="acts">
+        <select class="xs-select grade-sel" data-chg="grade" data-id="${m.id}" aria-label="${esc(m.name)} 부수">
+          <option value="">부수</option>${[1, 2, 3, 4, 5].map((n) => `<option value="${n}" ${Number(m.grade) === n ? "selected" : ""}>${n}부</option>`).join("")}</select>
         <button class="btn ghost xs" data-act="setRole" data-id="${m.id}">직책</button>
         <button class="btn ghost xs" data-act="renameMember" data-id="${m.id}">이름</button>
         <button class="btn ghost xs" data-act="toggleActive" data-id="${m.id}">${m.active === false ? "복귀" : "휴면"}</button>
         <button class="btn ghost xs danger" data-act="deleteMember" data-id="${m.id}">삭제</button></span></li>`).join("")}</ul>`
       : `<p class="empty">등록된 회원이 없어요.</p>`}
-    <p class="hint">탈퇴 회원은 ‘휴면’으로 두면 기록이 유지되고 참가자 선택 목록에서만 빠져요.</p></section>`;
+    <p class="hint">‘부수’를 고르면 앱 곳곳에서 이름 옆에 (1)처럼 표시돼요. 탈퇴 회원은 ‘휴면’으로 두면 기록이 유지되고 참가자 선택 목록에서만 빠져요.</p></section>`;
 }
 
 // ---------------------------------------------------------------------
@@ -932,6 +1113,7 @@ const actions = {
     if (!confirm(`이 행사를 삭제할까요?${n ? `\n이 행사의 경기 기록 ${n}건도 함께 삭제됩니다.` : ""}`)) return;
     const b = writeBatch(db);
     state.matches.filter((m) => m.eventId === d.id).forEach((m) => b.delete(doc(db, "matches", m.id)));
+    photosOf(d.id).forEach((x) => { b.delete(doc(db, "photos", x.id)); b.delete(doc(db, "photoFull", x.id)); });
     b.delete(doc(db, "events", d.id));
     await b.commit();
     toast("행사를 삭제했습니다");
@@ -1015,6 +1197,16 @@ const actions = {
   },
   gameTab(d) { state.gameTab = d.g; state.teamEdit = null; state.tieOpen = null; state.rubberPick = null; state.placePick = null; render(true); },
   player(d) { openPlayer(d.id, location.hash.startsWith("#/ranking") ? state.sortBy : ""); },
+  openPhoto(d) { showPhoto(d.id); },
+  photoToEvent(d) { closeModal(); location.hash = "#/event/" + d.id; },
+  async delPhoto(d) {
+    if (!confirm("이 사진을 삭제할까요?")) return;
+    const b = writeBatch(db);
+    b.delete(doc(db, "photos", d.id)); b.delete(doc(db, "photoFull", d.id));
+    await b.commit();
+    closeModal(); toast("사진을 삭제했어요");
+  },
+  clearMe() { setMe(""); render(true); toast("‘내 이름’ 선택을 해제했어요"); },
   pickMe(d) { setMe(state.me === d.id ? "" : d.id); render(true); window.scrollTo({ top: 0, behavior: "smooth" }); },
   // ---- 팀 편성 ----
   editTeams(d) {
@@ -1190,6 +1382,30 @@ const actions = {
     toast("경기 기록을 지웠습니다");
   },
   sort(d) { state.sortBy = d.k; render(true); },
+  async toggleFee(d) {
+    const m = Number(d.m);
+    const cur = paidOf(d.id);
+    const next = cur.includes(m) ? cur.filter((x) => x !== m) : [...cur, m].sort((a, b) => a - b);
+    await setDoc(doc(db, "fees", String(state.year)), { paid: { [d.id]: next } }, { merge: true });
+  },
+  async payYear(d) {
+    const m = state.members.find((x) => x.id === d.id);
+    const full = paidOf(d.id).length === 12;
+    if (!confirm(full ? `${m.name} 님의 ${state.year}년 납부 기록을 모두 지울까요?` : `${m.name} 님을 ${state.year}년 연납(1~12월 전체 납부)으로 처리할까요?`)) return;
+    await setDoc(doc(db, "fees", String(state.year)), { paid: { [d.id]: full ? [] : Array.from({ length: 12 }, (_, i) => i + 1) } }, { merge: true });
+    toast(full ? `${m.name} 님 납부 기록을 지웠어요` : `${m.name} 님 연납 처리했어요`);
+  },
+  editBalance() { state.editBalance = !state.editBalance; render(true); },
+  async shareBalance() {
+    const f = state.fees || {};
+    const url = location.origin + location.pathname + "#/fees";
+    const text = `[${CLUB_NAME}] 잔여 회비 안내\n잔액: ${won(f.balance)}${f.balanceDate ? ` (${fmtDate(f.balanceDate)} 기준)` : ""}${f.memo ? `\n${f.memo}` : ""}\n\n회비 납부 현황 보기 ▶ ${url}`;
+    try {
+      if (navigator.share) { await navigator.share({ title: `${CLUB_NAME} 잔여 회비`, text }); return; }
+    } catch (e) { if (e?.name === "AbortError") return; }
+    try { await navigator.clipboard.writeText(text); toast("복사했어요. 카톡 대화방에 붙여넣기 하세요"); }
+    catch { prompt("아래 내용을 복사해서 카톡에 붙여넣으세요", text); }
+  },
   async setRole(d) {
     const m = state.members.find((x) => x.id === d.id);
     const v = prompt(`${m.name} 님의 직책 (회장, 부회장, 총무 등 · 비우면 직책 없음)`, roleOf(m));
@@ -1198,8 +1414,8 @@ const actions = {
     toast(v.trim() ? `${m.name} 님을 ${v.trim()}(으)로 표시했어요` : `${m.name} 님의 직책을 지웠어요`);
   },
   async renameMember(d) {
-    const name = prompt("새 이름", memberName(d.id))?.trim();
-    if (!name || name === memberName(d.id)) return;
+    const name = prompt("새 이름", state.members.find((m) => m.id === d.id)?.name || "")?.trim();
+    if (!name || name === state.members.find((m) => m.id === d.id)?.name) return;
     if (state.members.some((m) => m.name === name)) return toast("같은 이름이 이미 있습니다");
     await updateDoc(doc(db, "members", d.id), { name });
   },
@@ -1224,6 +1440,34 @@ function resetGameResults(g, batch) {
   g.places = {}; g.ranks = {}; g.records = {}; g.league = {}; g.closed = false;
 }
 const changes = {
+  async photoFiles(el) {
+    const ev = state.events.find((e) => e.id === el.dataset.id);
+    const room = PHOTO_LIMIT - photosOf(ev.id).length;
+    const files = [...(el.files || [])].slice(0, room);
+    if (!files.length) return;
+    if ((el.files || []).length > room) toast(`모임마다 ${PHOTO_LIMIT}장까지라 앞의 ${room}장만 올릴게요`);
+    state.uploading = { ...(state.uploading || {}), [ev.id]: "준비 중…" };
+    try {
+      for (let i = 0; i < files.length; i++) {
+        state.uploading[ev.id] = `올리는 중 ${i + 1}/${files.length}`; render(true);
+        const { full, thumb } = await compressPhoto(files[i]);
+        const ref = doc(collection(db, "photos"));
+        const b = writeBatch(db);
+        b.set(ref, { eventId: ev.id, date: ev.date, year: ev.year, thumb: thumb.url, w: full.w, h: full.h, createdAt: serverTimestamp() });
+        b.set(doc(db, "photoFull", ref.id), { eventId: ev.id, data: full.url });
+        await b.commit();
+      }
+      toast(`사진 ${files.length}장을 올렸어요`);
+    } finally {
+      delete state.uploading[ev.id]; render(true);
+    }
+  },
+  async grade(el) {
+    const g = Number(el.value) || null;
+    await updateDoc(doc(db, "members", el.dataset.id), { grade: g });
+    const m = state.members.find((x) => x.id === el.dataset.id);
+    toast(g ? `${m?.name} 님 ${g}부` : `${m?.name} 님 부수를 지웠어요`);
+  },
   me(el) { setMe(el.value); render(true); },
   teamCount(el) { if (state.teamEdit) state.teamEdit.count = Math.max(2, Number(el.value) || 2); },
   async gameType(el) {
@@ -1260,6 +1504,14 @@ function scoringOf(eventId) {
 const saveScoring = (eventId, sc) => updateDoc(doc(db, "events", eventId), { scoring: sc });
 
 const forms = {
+  async balance(fd) {
+    const n = Number(String(fd.get("balance")).replace(/[^0-9-]/g, ""));
+    if (!Number.isFinite(n)) return toast("숫자로 입력하세요");
+    await setDoc(doc(db, "fees", String(state.year)), {
+      balance: n, balanceDate: fd.get("balanceDate") || today(), memo: fd.get("memo").trim(), updatedAt: serverTimestamp(),
+    }, { merge: true });
+    state.editBalance = false; document.activeElement?.blur(); toast("잔여 회비를 저장했어요"); render(true);
+  },
   async addGame(fd, f) {
     const names = fd.get("names").split(",").map((x) => x.trim()).filter(Boolean);
     if (!names.length) return toast("종목 이름을 입력하세요");
@@ -1387,7 +1639,7 @@ function openLogin() {
   $("#modal").classList.remove("hidden");
   $("#modal input").focus();
 }
-function closeModal() { $("#modal").classList.add("hidden"); $("#modal").classList.remove("sheet-mode"); $("#modal").innerHTML = ""; }
+function closeModal() { state.viewPhoto = null; $("#modal").classList.add("hidden"); $("#modal").classList.remove("sheet-mode", "lightbox-mode"); $("#modal").innerHTML = ""; }
 
 // ----- 개인 기록 창 (순위·출석·회원 탭에서 이름을 누르면) -------------
 function openPlayer(id, focus) {
@@ -1432,6 +1684,10 @@ function openPlayer(id, focus) {
   }).join("")}</ul>` : `<p class="empty">아직 진행된 모임이 없어요.</p>`;
 
   const secMatch = `<section class="pl-sec"><h3>경기 전적</h3>${vsHtml ? `<div class="pl-sub">상대별</div>${vsHtml}<div class="pl-sub">모임별</div>` : ""}${matchHtml}</section>`;
+  watchFees(state.year);
+  const feePaid = paidOf(id);
+  const secFee = state.fees ? `<section class="pl-sec"><h3>회비 납부 <span class="count">${feePaid.length}/12개월</span></h3>
+    <div class="months big">${Array.from({ length: 12 }, (_, i) => `<i class="mo ${feePaid.includes(i + 1) ? "on" : ""}">${i + 1}</i>`).join("")}</div></section>` : "";
   const secAtt = `<section class="pl-sec"><h3>출석 기록 <span class="count">${att}/${evs.length}회</span></h3>${attHtml}</section>`;
 
   $("#modal").innerHTML = `<div class="sheet" role="dialog" aria-label="${esc(memberName(id))} 기록">
@@ -1442,7 +1698,7 @@ function openPlayer(id, focus) {
       <div><span>탁구</span><b>${w}<small>승</small> ${l}<small>패</small></b><em>${ms.length ? pct(w / ms.length) : "-"}</em></div>
       <div><span>출석</span><b>${att}<small>/${evs.length}회</small></b></div>
     </div>
-    <div class="sheet-body">${focus === "att" ? secAtt + secMatch : secMatch + secAtt}</div></div>`;
+    <div class="sheet-body">${focus === "att" ? secAtt + secMatch : secMatch + secAtt}${secFee}</div></div>`;
   $("#modal").classList.add("sheet-mode");
   $("#modal").classList.remove("hidden");
 }
