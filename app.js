@@ -529,8 +529,16 @@ function gamePlaces(g) {
   const places = {};
   const put = (rank, members) => { (places[rank] ??= []).push(...(members || [])); };
   if (type === "teams") (g.teams || []).forEach((t) => { const rk = Number(g.ranks?.[t.id]); if (rk) put(rk, t.members); });
-  if (type === "league") { const s = leagueStandings(g); if (s.started && (s.done === s.pairs || g.closed)) s.rows.forEach((r) => put(r.rank, r.t.members)); }
+  // 리그: 경기가 하나라도 끝나면 현재 순위대로 바로 점수 반영 (리그 종료·확정 전에는 '잠정')
+  if (type === "league") { const s = leagueStandings(g); if (s.started) s.rows.forEach((r) => put(r.rank, r.t.members)); }
   return places;
+}
+
+// 리그가 진행 중이라 점수가 아직 '잠정'인지
+function isProvisional(g) {
+  if ((g.type || "manual") !== "league") return false;
+  const s = leagueStandings(g);
+  return s.started && !((s.pairs && s.done === s.pairs) || g.closed);
 }
 
 function scoreTotals(sc) {
@@ -586,16 +594,19 @@ function scoringSection(ev, att) {
 
   // 최종 순위
   const table = rows.length ? `<div class="tbl-wrap"><table class="data-tbl final-tbl">
-      <thead><tr><th class="c-rk">순위</th><th class="l c-nm">이름</th>${games.map((g) => `<th>${esc(g.name)}</th>`).join("")}<th class="c-tot">합계</th></tr></thead>
+      <thead><tr><th class="c-rk">순위</th><th class="l c-nm">이름</th>${games.map((g) => `<th>${esc(g.name)}${isProvisional(g) ? '<span class="prov-tag">잠정</span>' : ""}</th>`).join("")}<th class="c-tot">합계</th></tr></thead>
       <tbody>${rows.map((r) => `<tr class="click ${r.id === state.me ? "me" : ""}" data-act="pickMe" data-id="${r.id}">
         <td>${rk(r.rank)}</td><td class="nm l">${esc(r.name)}</td>
-        ${games.map((g) => (r.per[g.id] != null ? `<td class="num">${r.per[g.id]}</td>` : `<td class="dim">·</td>`)).join("")}
+        ${games.map((g) => (r.per[g.id] != null ? `<td class="num ${isProvisional(g) ? "prov" : ""}">${r.per[g.id]}</td>` : `<td class="dim">·</td>`)).join("")}
         <td class="total">${r.sum}</td></tr>`).join("")}</tbody></table></div>
       <p class="hint">이름을 누르면 ‘내 기록’에서 종목별 결과를 볼 수 있어요. 점수가 같으면 같은 순위예요.</p>`
     : `<p class="empty">종목 결과가 입력되면 여기에 최종 순위가 나타나요.</p>`;
 
+  const provGames = games.filter(isProvisional);
+  const provNote = provGames.length && rows.length ? `<div class="prov-note"><b>${provGames.map((g) => esc(g.name)).join(", ")} 진행 중</b> · 현재 순위 기준 <b>잠정 점수</b>예요. 리그가 끝나면 확정돼요.</div>` : "";
   const finalCard = `<section class="card">
-    <div class="sec-head"><h2>최종 순위</h2><span class="sub">${scale.map((pt, i) => `${i + 1}등 ${pt}점`).join(" · ")}</span></div>
+    <div class="sec-head"><h2>${provGames.length && rows.length ? "현재 순위" : "최종 순위"}</h2><span class="sub">${scale.map((pt, i) => `${i + 1}등 ${pt}점`).join(" · ")}</span></div>
+    ${provNote}
     ${myRecord(sc, rows, games, scale, att)}
     ${table}</section>`;
 
@@ -639,7 +650,7 @@ function myRecord(sc, rows, games, scale, att) {
     const team = (g.teams || []).find((t) => (t.members || []).includes(me));
     return `<div class="tile"><div class="t-name">${esc(g.name)}</div>
       <div class="t-res">${pl ? `${pl}등` : "-"}${team ? `<small>${esc(team.name)}</small>` : ""}</div>
-      <div class="t-pt">${pt != null ? `+${pt}점` : "점수 없음"}</div></div>`;
+      <div class="t-pt">${pt != null ? `+${pt}점${isProvisional(g) ? " <small>잠정</small>" : ""}` : "점수 없음"}</div></div>`;
   }).join("");
   return `<div class="my-pick">${sel}</div>
     <div class="my-hero">
@@ -715,15 +726,15 @@ function leagueView(ev, g, scale, admin) {
   const s = leagueStandings(g);
   const teams = g.teams;
   const final = (s.pairs && s.done === s.pairs) || g.closed;
-  const table = `<div class="tbl-wrap"><table class="data-tbl league-tbl"><thead><tr><th class="c-rk">순위</th><th class="l">팀</th><th>승</th><th>패</th><th>세트</th><th class="c-tot">점수</th></tr></thead><tbody>
+  const table = `<div class="tbl-wrap"><table class="data-tbl league-tbl"><thead><tr><th class="c-rk">순위</th><th class="l">팀</th><th>승</th><th>패</th><th>세트</th><th class="c-tot">점수${s.started && !final ? '<span class="prov-tag">잠정</span>' : ""}</th></tr></thead><tbody>
     ${s.rows.map((r) => {
-      const pt = final && s.started ? scale[r.rank - 1] : undefined;
+      const pt = s.started ? scale[r.rank - 1] : undefined;
       return `<tr><td>${s.started ? rk(r.rank) : rk(0)}</td>
       <td class="l team-cell"><b>${esc(r.t.name)}</b><span class="tm">${byName(r.t.members || []).map((m) => esc(m.name)).join(" · ")}</span></td>
       <td class="num">${r.w}</td><td class="num">${r.l}</td><td class="num">${r.rw}-${r.rl}</td>
-      <td class="pts-cell">${pt != null ? `+${pt}` : `<span class="dim">·</span>`}</td></tr>`;
+      <td class="pts-cell ${final ? "" : "prov"}">${pt != null ? `+${pt}` : `<span class="dim">·</span>`}</td></tr>`;
     }).join("")}</tbody></table></div>
-    <p class="hint">${s.done}/${s.pairs}경기 완료 · ${(s.pairs && s.done === s.pairs) ? "리그 종료, 점수 반영됨" : g.closed ? "순위 확정, 점수 반영됨" : "리그가 끝나면 점수가 반영돼요"} · 순위는 승수 → 세트 득실 → 승자승</p>
+    <p class="hint">${s.done}/${s.pairs}경기 완료 · ${(s.pairs && s.done === s.pairs) ? "리그 종료, 점수 반영됨" : g.closed ? "순위 확정, 점수 반영됨" : "진행 중 · 현재 순위 기준 잠정 점수예요 (리그가 끝나면 확정)"} · 순위는 승수 → 세트 득실 → 승자승</p>
     ${admin && s.started && s.done < s.pairs ? `<button class="btn ghost sm" data-act="closeLeague" data-id="${ev.id}" data-g="${g.id}">${g.closed ? "확정 취소" : "여기서 순위 확정"}</button>` : ""}`;
 
   const ties = [];
@@ -1013,6 +1024,7 @@ function viewFees() {
   const balView = state.editBalance && admin ? `<form class="form" data-form="balance">
       <label class="field"><span>잔여 회비 (원)</span><input name="balance" inputmode="numeric" value="${hasBal ? Number(f.balance) : ""}" placeholder="예) 1250000" required></label>
       <label class="field"><span>기준일</span><input type="date" name="balanceDate" value="${f.balanceDate || today()}"></label>
+      <label class="field"><span>월 회비 (원) <small>(선택 · 넣으면 ‘올해 걷힌 회비’가 계산돼요)</small></span><input name="monthly" inputmode="numeric" value="${f.monthly ? Number(f.monthly) : ""}" placeholder="예) 20000"></label>
       <label class="field"><span>메모 <small>(선택 · 지출 내역, 다음 모임 예산 등)</small></span><textarea name="memo" rows="3">${esc(f.memo)}</textarea></label>
       <div class="row"><button type="button" class="btn ghost" data-act="editBalance">취소</button><span class="spacer"></span><button class="btn primary">저장</button></div></form>`
     : `<div class="bal">
@@ -1031,9 +1043,13 @@ function viewFees() {
   const full = list.filter((m) => paidOf(m.id).length === 12).length;
   const total = list.reduce((n, m) => n + paidOf(m.id).length, 0);
   const curM = state.year === new Date().getFullYear() ? new Date().getMonth() + 1 : state.year < new Date().getFullYear() ? 12 : 0;
-  const upToDate = curM ? list.filter((m) => { const p = paidOf(m.id); return Array.from({ length: curM }, (_, i) => i + 1).every((x) => p.includes(x)); }).length : 0;
+  const isUpToDate = (m) => { const p = paidOf(m.id); return Array.from({ length: curM }, (_, i) => i + 1).every((x) => p.includes(x)); };
+  const upToDate = curM ? list.filter(isUpToDate).length : 0;
+  const unpaidOnly = state.feeFilter && curM;
+  const shown = unpaidOnly ? list.filter((m) => !isUpToDate(m)) : list;
+  const monthly = Number(f.monthly) || 0;
   const head = `<div class="fee-row fee-head"><span class="fee-nm">이름</span><span class="months">${Array.from({ length: 12 }, (_, i) => `<i class="${i + 1 === curM && state.year === new Date().getFullYear() ? "now" : ""}">${i + 1}</i>`).join("")}</span><span class="fee-cnt">납부</span></div>`;
-  const rows = list.map((m) => {
+  const rows = shown.map((m) => {
     const p = paidOf(m.id);
     return `<div class="fee-row ${m.id === state.me ? "me" : ""}">
       <span class="fee-nm click" data-act="player" data-id="${m.id}">${esc(dispName(m))}</span>
@@ -1049,10 +1065,12 @@ function viewFees() {
     <div class="sec-head"><h2>회비 납부 현황</h2>${yearNav()}</div>
     <div class="stat-row three">
       <div class="stat"><span>완납</span><b>${full}<small>명</small></b></div>
-      ${curM ? `<div class="stat"><span>${curM}월까지 납부</span><b>${upToDate}<small>명</small></b></div>` : ""}
-      <div class="stat"><span>납부 합계</span><b>${total}<small>개월</small></b></div>
+      ${curM ? `<button class="stat click ${unpaidOnly ? "on" : ""}" data-act="feeFilter"><span>${curM}월까지 납부</span><b>${upToDate}<small>/${list.length}명</small></b><em>${unpaidOnly ? "전체 보기" : `미납 ${list.length - upToDate}명 보기`}</em></button>` : ""}
+      ${monthly ? `<div class="stat"><span>올해 걷힌 회비</span><b class="money">${won(total * monthly)}</b><em>월 ${won(monthly)} 기준</em></div>`
+        : `<div class="stat"><span>${curM ? `${curM}월까지 납부율` : "납부율"}</span><b>${list.length && curM ? Math.round((upToDate / list.length) * 100) : 0}<small>%</small></b>${admin ? `<em>월 회비를 입력하면 걷힌 금액이 보여요</em>` : ""}</div>`}
     </div>
-    ${list.length ? `<div class="fee-table">${head}${rows}</div>` : `<p class="empty">회원을 먼저 등록하세요.</p>`}
+    ${unpaidOnly ? `<p class="filter-note">${curM}월까지 다 내지 않은 회원 ${shown.length}명만 보는 중 <button class="link-btn" data-act="feeFilter">전체 보기</button></p>` : ""}
+    ${list.length ? (shown.length ? `<div class="fee-table">${head}${rows}</div>` : `<p class="empty">${curM}월까지 모두 납부했어요.</p>`) : `<p class="empty">회원을 먼저 등록하세요.</p>`}
     <p class="hint">${admin ? "달 칸을 누르면 그 달 납부/미납이 바뀌고, 오른쪽 <b>납부 개월 수</b>를 누르면 12개월 한 번에 <b>연납 처리</b>돼요. " : ""}파란 칸이 납부한 달이에요. 이름을 누르면 개인 기록을 볼 수 있어요.</p></section>`;
 
   return balCard + statusCard;
@@ -1395,6 +1413,7 @@ const actions = {
     await setDoc(doc(db, "fees", String(state.year)), { paid: { [d.id]: full ? [] : Array.from({ length: 12 }, (_, i) => i + 1) } }, { merge: true });
     toast(full ? `${m.name} 님 납부 기록을 지웠어요` : `${m.name} 님 연납 처리했어요`);
   },
+  feeFilter() { state.feeFilter = !state.feeFilter; render(true); },
   editBalance() { state.editBalance = !state.editBalance; render(true); },
   async shareBalance() {
     const f = state.fees || {};
@@ -1509,6 +1528,7 @@ const forms = {
     if (!Number.isFinite(n)) return toast("숫자로 입력하세요");
     await setDoc(doc(db, "fees", String(state.year)), {
       balance: n, balanceDate: fd.get("balanceDate") || today(), memo: fd.get("memo").trim(), updatedAt: serverTimestamp(),
+      monthly: Number(String(fd.get("monthly") || "").replace(/[^0-9]/g, "")) || 0,
     }, { merge: true });
     state.editBalance = false; document.activeElement?.blur(); toast("잔여 회비를 저장했어요"); render(true);
   },
