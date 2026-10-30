@@ -402,7 +402,8 @@ function viewEvent(id) {
   const firstLine = (ev.notice || "").split("\n").map((s) => s.trim()).find((s) => s && !/^[━─\-=_~·.\s]+$/.test(s)) || "";
   const noticeSection = ev.notice && !state.editEvent ? `<details class="notice" data-notice="${ev.id}" ${state.noticeOpen[ev.id] ? "open" : ""}>
     <summary><span class="nt-ic">${IC.notice}</span><span class="nt-txt"><b>공지사항</b><span>${esc(firstLine)}</span></span><span class="nt-chev">${IC.down}</span></summary>
-    <div class="notice-body">${linkify(esc(ev.notice))}</div></details>` : "";
+    <div class="notice-body">${linkify(esc(ev.notice))}</div>
+    <div class="notice-fold"><button class="btn ghost sm" data-act="foldNotice" data-id="${ev.id}">공지 접기 ${IC.down.replace('class="ic"', 'class="ic up"')}</button></div></details>` : "";
 
   // 참가자
   let attBody;
@@ -1246,6 +1247,12 @@ const actions = {
   gameTab(d) { state.gameTab = d.g; state.teamEdit = null; state.tieOpen = null; state.rubberPick = null; state.placePick = null; render(true); },
   player(d) { openPlayer(d.id, location.hash.startsWith("#/ranking") ? state.sortBy : ""); },
   openPhoto(d) { showPhoto(d.id); },
+  // 공지를 다 읽고 맨 아래에서 접기 → 공지 제목이 보이는 위치로
+  foldNotice(d) {
+    state.noticeOpen[d.id] = false;
+    const el = document.querySelector(`details[data-notice="${d.id}"]`);
+    if (el) { el.open = false; el.scrollIntoView({ block: "start", behavior: "smooth" }); window.scrollBy(0, -70); }
+  },
   photoToEvent(d) { closeModal(); location.hash = "#/event/" + d.id; },
   async delPhoto(d) {
     if (!confirm("이 사진을 삭제할까요?")) return;

@@ -223,7 +223,7 @@ label.inline select, label.inline input { width: auto; min-height: 34px; padding
 .nt-chev { color: var(--faint); transition: transform 0.15s; display: grid; }
 .notice[open] .nt-chev { transform: rotate(180deg); }
 .notice[open] .nt-txt span { display: none; }
-.notice-body { border-top: 1px solid var(--line); padding: 14px 16px 16px; white-space: pre-wrap; word-break: keep-all; overflow-wrap: anywhere; font-size: 14px; line-height: 1.75; color: var(--ink); max-height: 60vh; overflow-y: auto; }
+.notice-body { border-top: 1px solid var(--line); padding: 14px 16px 16px; white-space: pre-wrap; word-break: keep-all; overflow-wrap: anywhere; font-size: 14px; line-height: 1.75; color: var(--ink); }
 
 /* ── 표 ── */
 .tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -2px; }
@@ -658,3 +658,8 @@ button.stat { font: inherit; text-align: left; background: #fff; cursor: pointer
 .ab-tag.b { background: #64788f; }
 .chip.ab { min-height: 32px; padding: 0 10px; font-size: 13.5px; }
 .chip.ab.ga { border-color: #b9d3f5; }
+
+/* 공지 맨 아래 접기 버튼 */
+.notice-fold { display: flex; justify-content: center; padding: 0 16px 14px; }
+.notice-fold .btn { min-width: 140px; }
+.ic.up { transform: rotate(180deg); }
