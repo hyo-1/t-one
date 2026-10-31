@@ -258,6 +258,7 @@ const IC = {
   paddle: SVG('<path d="M14.5 9.5a5.5 5.5 0 1 0-7.8 7.8l-2.9 2.9 1.4 1.4 2.9-2.9a5.5 5.5 0 0 0 6.4-9.2z"/><circle cx="19" cy="5" r="2"/>'),
   edit: SVG('<path d="M4 20h4L19 9l-4-4L4 16z"/>'),
   plus: SVG('<path d="M12 5v14M5 12h14"/>'),
+  check: SVG('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
   doc: SVG('<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>'),
   notice: SVG('<path d="M4 9.5v5h2.5L16 19V5L6.5 9.5z"/><path d="M6.5 14.5l1.4 4.5h3l-1.2-3.7"/><path d="M19 9.3a3.2 3.2 0 0 1 0 5.4"/>'),
 };
@@ -1118,8 +1119,8 @@ function viewFees() {
     const p = paidOf(m.id);
     // 12개월 모두 납부(연납)하면 달별 칸 대신 파란 막대 하나로 표시 (관리자는 막대를 누르면 달별 칸이 열려 한 달만 고칠 수 있음)
     const bar = p.length === 12 && state.feeOpen !== m.id;
-    const barHtml = admin ? `<button class="year-bar" data-act="feeOpen" data-id="${m.id}" aria-label="${esc(m.name)} 연납 · 달별로 보기"></button>`
-      : `<span class="year-bar" role="img" aria-label="1월부터 12월까지 납부 완료"></span>`;
+    const barHtml = admin ? `<button class="year-bar" data-act="feeOpen" data-id="${m.id}" aria-label="${esc(m.name)} 연납 · 달별로 보기">${IC.check}</button>`
+      : `<span class="year-bar" role="img" aria-label="1월부터 12월까지 납부 완료">${IC.check}</span>`;
     return `<div class="fee-row ${m.id === state.me ? "me" : ""}">
       <span class="fee-nm click" data-act="player" data-id="${m.id}">${esc(dispName(m))}</span>
       <span class="months ${bar ? "full" : ""}">${bar ? barHtml : Array.from({ length: 12 }, (_, i) => {
@@ -1873,7 +1874,7 @@ function openPlayer(id, focus) {
   watchFees(state.year);
   const feePaid = paidOf(id);
   const secFee = state.fees ? `<section class="pl-sec"><h3>회비 납부 <span class="count">${feePaid.length}/12개월</span></h3>
-    ${feePaid.length === 12 ? `<div class="year-bar big" role="img" aria-label="12개월 납부 완료"></div>`
+    ${feePaid.length === 12 ? `<div class="year-bar big" role="img" aria-label="12개월 납부 완료">${IC.check}</div>`
       : `<div class="months big">${Array.from({ length: 12 }, (_, i) => `<i class="mo ${feePaid.includes(i + 1) ? "on" : ""}">${i + 1}</i>`).join("")}</div>`}</section>` : "";
   const secAtt = `<section class="pl-sec"><h3>출석 기록 <span class="count">${att}/${evs.length}회</span></h3>${attHtml}</section>`;
 
