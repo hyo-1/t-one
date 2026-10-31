@@ -156,10 +156,16 @@ const roleOf = (m) => (m && (m.role ?? DEFAULT_ROLES[m.name])) || "";
 const roleRank = (m) => { const r = roleOf(m); if (!r) return 99; const i = ROLE_ORDER.indexOf(r); return i < 0 ? 50 : i; };
 const roleTag = (m) => (roleOf(m) ? `<span class="role">${esc(roleOf(m))}</span>` : "");
 // 이름 옆 탁구 부수 표시: 김효원(1)
-const dispName = (m) => (m ? m.name + (m.grade ? `(${m.grade})` : "") : "(삭제된 회원)");
+// 게스트는 이름 앞에 G를 붙여 표시: G홍길동(2) — 글자 수가 1자만 늘어 화면이 깨지지 않음
+// 게스트 = { guest: true, active: false } 인 회원 문서 (명단·회비·출석 순위에는 안 나오고, 행사에서는 일반 참가자처럼 동작)
+const isGuest = (m) => m?.guest === true;
+const guestId = (id) => isGuest(state.members.find((m) => m.id === id));
+const dispName = (m) => (m ? (isGuest(m) ? "G" : "") + m.name + (m.grade ? `(${m.grade})` : "") : "(삭제된 회원)");
 const memberName = (id) => dispName(state.members.find((m) => m.id === id));
+const rawName = (id) => state.members.find((m) => m.id === id)?.name || "";
+// 이름순 정렬은 'G' 접두사와 상관없이 실제 이름 기준 (게스트가 맨 앞으로 몰리지 않게)
 const byName = (ids) => ids.map((id) => ({ id, name: memberName(id) }))
-  .sort((a, b) => a.name.localeCompare(b.name, "ko"));
+  .sort((a, b) => rawName(a.id).localeCompare(rawName(b.id), "ko"));
 
 // ---------------------------------------------------------------------
 //  실시간 구독
@@ -225,7 +231,7 @@ onAuthStateChanged(auth, (u) => { state.user = u; render(); });
 window.addEventListener("hashchange", () => {
   state.pick = { winner: null, loser: null, score: "" };
   state.editAttend = false; state.editEvent = false; state.showNewEvent = false; state.placePick = null;
-  state.teamEdit = null; state.tieOpen = null; state.rubberPick = null; state.freeInput = false; state.editBalance = false;
+  state.teamEdit = null; state.tieOpen = null; state.rubberPick = null; state.freeInput = false; state.editBalance = false; state.feeOpen = null;
   render(true);
   window.scrollTo(0, 0);
 });
@@ -408,19 +414,20 @@ function viewEvent(id) {
   // 참가자
   let attBody;
   if (state.editAttend) {
-    const pool = state.members.filter((m) => m.active !== false || att.includes(m.id));
+    const pool = state.members.filter((m) => m.active !== false || att.includes(m.id) || state.attendDraft.has(m.id))
+      .sort((a, b) => isGuest(a) - isGuest(b)); // 게스트는 맨 뒤
     attBody = pool.length ? `
       <p class="hint lead">탭해서 참가자를 고르세요 · <b>${state.attendDraft.size}명</b> 선택</p>
-      <div class="chips wrap">${pool.map((m) => `<button class="chip ${state.attendDraft.has(m.id) ? "on" : ""}" data-act="toggleAttend" data-id="${m.id}">${esc(dispName(m))}</button>`).join("")}</div>
-      <form class="quick-add" data-form="quickMember"><input name="name" placeholder="명단에 없는 사람 바로 추가 (이름)" autocomplete="off"><button class="btn">추가</button></form>
+      <div class="chips wrap">${pool.map((m) => `<button class="chip ${isGuest(m) ? "guest" : ""} ${state.attendDraft.has(m.id) ? "on" : ""}" data-act="toggleAttend" data-id="${m.id}">${esc(dispName(m))}</button>`).join("")}</div>
+      ${quickAddForm}
       <div class="row"><button class="btn ghost sm" data-act="attendAll">전체 선택</button><button class="btn ghost sm" data-act="attendNone">전체 해제</button>
         <span class="spacer"></span><button class="btn ghost" data-act="cancelAttend">취소</button>
         <button class="btn primary" data-act="saveAttend" data-id="${ev.id}">저장</button></div>`
       : `<p class="empty">등록된 회원이 없어요. <a href="#/members">회원 탭</a>에서 먼저 추가하세요.</p>
-        <form class="quick-add" data-form="quickMember"><input name="name" placeholder="이름" autocomplete="off"><button class="btn">추가</button></form>`;
+        ${quickAddForm}`;
   } else {
     attBody = att.length
-      ? `<div class="chips wrap">${byName(att).map((m) => `<span class="chip static ${m.id === state.me ? "me" : ""}">${esc(m.name)}</span>`).join("")}</div>`
+      ? `<div class="chips wrap">${byName(att).map((m) => `<span class="chip static ${guestId(m.id) ? "guest" : ""} ${m.id === state.me ? "me" : ""}">${esc(m.name)}</span>`).join("")}</div>`
       : `<p class="empty">아직 참가자가 없어요.</p>`;
   }
   const attSection = fold(`${ev.id}:att`, "참가자", `${att.length}명`, attBody, {
@@ -485,11 +492,18 @@ function viewEvent(id) {
 // ----- 종합 점수 (종목별 순위 → 점수 합산) -------------------------
 const placeLabel = (i) => `${i + 1}등`;
 const GAME_TYPES = {
-  league: "팀 리그 · 단식-단식-복식",
+  league: "팀 리그",
   teams: "팀 순위",
   manual: "순위 직접 지정",
 };
-const RUBBERS = ["1단식", "2단식", "복식"];
+// 리그 경기 방식 (종목마다 선택, 기존 행사는 단식-단식-복식)
+const FORMATS = {
+  ssd: { label: "단식-단식-복식", rubbers: ["1단식", "2단식", "복식"], groups: ["A", "B"] },
+  sss: { label: "단식-단식-단식", rubbers: ["1단식", "2단식", "3단식"], groups: ["A", "B", "C"] },
+};
+const fmtOf = (g) => FORMATS[g?.format] || FORMATS.ssd;
+const rubbersOf = (g) => fmtOf(g).rubbers;
+const isDoubles = (label) => label === "복식";
 const pairKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
 const teamOf = (g, tid) => (g.teams || []).find((t) => t.id === tid);
 const teamLabel = (t) => `<b>${esc(t.name)}</b><span class="tm">${byName(t.members || []).map((m) => esc(m.name)).join(" · ") || "팀원 없음"}</span>`;
@@ -501,7 +515,7 @@ function tieResult(g, a, b) {
   let aw = 0, bw = 0;
   rs.forEach((x) => { if (x?.w === a) aw++; else if (x?.w === b) bw++; });
   const winner = aw >= 2 ? a : bw >= 2 ? b : null;
-  return { aw, bw, decided: !!winner, done: aw + bw >= RUBBERS.length, winner, rs };
+  return { aw, bw, decided: !!winner, done: aw + bw >= rubbersOf(g).length, winner, rs };
 }
 
 function leagueStandings(g) {
@@ -664,11 +678,13 @@ function myRecord(sc, rows, games, scale, att) {
 function gameBody(ev, g, scale, pool, admin) {
   const type = g.type || "manual";
   const st = gameStatus(g, scale);
-  const head = `<div class="game-head"><span class="badge">${GAME_TYPES[type]}</span><span class="badge ${st}">${ST_TEXT[st]}</span></div>
+  const head = `<div class="game-head"><span class="badge">${GAME_TYPES[type]}${type === "league" ? ` · ${fmtOf(g).label}` : ""}</span><span class="badge ${st}">${ST_TEXT[st]}</span></div>
     ${admin ? `<div class="admin-tools">
       ${type !== "manual" ? `<button class="btn ghost xs" data-act="editTeams" data-g="${g.id}">팀 편성</button>` : ""}
       ${type !== "league" ? `<select class="xs-select" data-chg="gameType" data-id="${ev.id}" data-g="${g.id}" aria-label="진행 방식">
         ${Object.entries(GAME_TYPES).filter(([k]) => k !== "league").map(([k, v]) => `<option value="${k}" ${k === type ? "selected" : ""}>${v}</option>`).join("")}</select>` : ""}
+      ${type === "league" && !hasResults(g) ? `<select class="xs-select" data-chg="leagueFormat" data-id="${ev.id}" data-g="${g.id}" aria-label="경기 방식">
+        ${Object.entries(FORMATS).map(([k, f]) => `<option value="${k}" ${f === fmtOf(g) ? "selected" : ""}>${f.label}</option>`).join("")}</select>` : ""}
       <span class="spacer"></span>
       ${hasResults(g) ? `<button class="btn ghost xs danger" data-act="resetGame" data-id="${ev.id}" data-g="${g.id}">결과 삭제</button>` : ""}
       ${hasResults(g) || (g.teams || []).length ? `<button class="btn ghost xs danger" data-act="wipeGame" data-id="${ev.id}" data-g="${g.id}">종목 초기화</button>` : ""}</div>` : ""}`;
@@ -759,7 +775,7 @@ function leagueView(ev, g, scale, admin) {
           <span class="chev">${IC.down}</span></button>
         ${open ? `<div class="tie-body">
           <div class="tie-teams"><div>${teamLabel(sideA)}</div><div>${teamLabel(sideB)}</div></div>
-          ${RUBBERS.map((label, idx) => rubberRow(ev, g, key, sideA, sideB, idx, label, x.rs[idx], admin)).join("")}
+          ${rubbersOf(g).map((label, idx) => rubberRow(ev, g, key, sideA, sideB, idx, label, x.rs[idx], admin)).join("")}
         </div>` : ""}</li>`;
     }).join("")}</ul>`;
   return table + list;
@@ -775,7 +791,7 @@ function rubberRow(ev, g, key, A, B, idx, label, r, admin) {
   if (done) {
     const aWin = r.w === A.id;
     let left, right;
-    if (idx < 2 && r.winner) {
+    if (r.winner) {
       const aP = aWin ? r.winner : r.loser, bP = aWin ? r.loser : r.winner;
       left = side(`${esc(memberName(aP))}${aWin ? winMark : ""}`, aWin ? "win" : "lose");
       right = side(`${!aWin ? winMark : ""}${esc(memberName(bP))}`, `r ${!aWin ? "win" : "lose"}`);
@@ -787,7 +803,16 @@ function rubberRow(ev, g, key, A, B, idx, label, r, admin) {
   }
   if (!admin) return row(side("-", "dim"), side("-", "r dim"));
   const pick = state.rubberPick;
-  if (idx === 2) {
+  // 단식만 하는 방식: 이 대진에서 이미 뛴 사람은 빼고 보여 줌 (뛸 사람이 없으면 전원 표시)
+  const playedIn = (T) => {
+    if (!isDoubles(rubbersOf(g).at(-1))) {
+      const used = new Set((g.league?.[key]?.r || []).flatMap((x) => (x ? [x.winner, x.loser] : [])));
+      const left = (T.members || []).filter((id) => !used.has(id));
+      if (left.length) return left;
+    }
+    return T.members || [];
+  };
+  if (isDoubles(label)) {
     const btn = (T) => `<button class="pick sm" data-act="setRubber" data-id="${ev.id}" data-g="${g.id}" data-k="${key}" data-i="2" data-w="${T.id}">${esc(T.name)} 승</button>`;
     return row(side(btn(A)), side(btn(B), "r"));
   }
@@ -796,12 +821,12 @@ function rubberRow(ev, g, key, A, B, idx, label, r, admin) {
     const aWin = (A.members || []).includes(pick.winner);
     const winTeam = aWin ? A : B, opp = aWin ? B : A;
     const fixed = `<b class="w">${esc(memberName(pick.winner))}</b>${winMark}`;
-    const choose = (opp.members || []).map((id) => `<button class="pick sm lose" data-act="setRubber" data-id="${ev.id}" data-g="${g.id}" data-k="${key}" data-i="${idx}" data-w="${winTeam.id}" data-winner="${pick.winner}" data-loser="${id}">${esc(memberName(id))}</button>`).join("");
+    const choose = playedIn(opp).map((id) => `<button class="pick sm lose" data-act="setRubber" data-id="${ev.id}" data-g="${g.id}" data-k="${key}" data-i="${idx}" data-w="${winTeam.id}" data-winner="${pick.winner}" data-loser="${id}">${esc(memberName(id))}</button>`).join("");
     const left = aWin ? side(fixed, "win") : side(choose);
     const right = aWin ? side(choose, "r") : side(fixed, "r win");
     return row(left, right, `<div class="rb-help">진 상대를 고르세요 <button class="btn ghost xs" data-act="cancelRubber">취소</button></div>`, "picking");
   }
-  const btns = (T) => (T.members || []).map((id) => `<button class="pick sm" data-act="pickRubberWinner" data-k="${key}" data-i="${idx}" data-p="${id}">${esc(memberName(id))}</button>`).join("");
+  const btns = (T) => playedIn(T).map((id) => `<button class="pick sm" data-act="pickRubberWinner" data-k="${key}" data-i="${idx}" data-p="${id}">${esc(memberName(id))}</button>`).join("");
   return row(side(btns(A)), side(btns(B), "r"), `<div class="rb-help">이긴 사람을 누르세요</div>`);
 }
 
@@ -810,13 +835,17 @@ function teamPoolIds() {
   const ev = currentEvent();
   return ev?.attendees?.length ? ev.attendees : state.members.filter((m) => m.active !== false).map((m) => m.id);
 }
-// A·B 그룹 채우기: 부수가 높은(숫자가 작은) 순으로 절반을 A, 나머지 B. force=false면 이미 정한 사람은 그대로
+// 그룹 채우기: 부수가 높은(숫자가 작은) 순으로 나눔 (2그룹이면 절반씩 A·B, 3그룹이면 1/3씩 A·B·C)
+// force=false면 이미 정한 사람은 그대로
 function fillGroups(te, force) {
+  const G = te.groupNames || ["A", "B"];
   const ids = teamPoolIds();
   const gradeOf = (id) => Number(state.members.find((m) => m.id === id)?.grade) || 9;
-  const sorted = [...ids].sort((a, b) => gradeOf(a) - gradeOf(b) || memberName(a).localeCompare(memberName(b), "ko"));
-  const half = Math.ceil(sorted.length / 2);
-  sorted.forEach((id, i) => { if (force || !te.groups[id]) te.groups[id] = i < half ? "A" : "B"; });
+  const sorted = [...ids].sort((a, b) => gradeOf(a) - gradeOf(b) || rawName(a).localeCompare(rawName(b), "ko"));
+  const per = Math.ceil(sorted.length / G.length);
+  sorted.forEach((id, i) => {
+    if (force || !G.includes(te.groups[id])) te.groups[id] = G[Math.min(Math.floor(i / per), G.length - 1)];
+  });
 }
 
 // 팀 편성 편집기
@@ -827,22 +856,25 @@ function teamEditor(ev, g, pool) {
   const isLeague = (g.type || "manual") === "league";
   const ids = isLeague ? teamPoolIds() : [];
   const grp = te.groups || {};
-  const aIds = ids.filter((id) => grp[id] === "A"), bIds = ids.filter((id) => grp[id] !== "A");
-  const abChip = (id) => `<button class="chip ab ${grp[id] === "A" ? "ga" : "gb"}" data-act="abToggle" data-id="${id}">${esc(memberName(id))}</button>`;
+  const G = te.groupNames || ["A", "B"];
+  const gl = G.join("·");
+  const each = G.map((x) => `${x} 1명`).join(" + ");
+  const inG = (x) => ids.filter((id) => grp[id] === x);
+  const counts = G.map((x) => inG(x).length);
+  const abChip = (id) => `<button class="chip ab g${(grp[id] || "B").toLowerCase()}" data-act="abToggle" data-id="${id}">${esc(memberName(id))}</button>`;
   const abBox = isLeague ? `<div class="ab-box">
-      <div class="ab-head"><b>A·B 그룹 랜덤 편성</b><button class="btn ghost xs" data-act="abAuto">부수로 다시 나누기</button></div>
-      <p class="hint lead">이름을 누르면 A ↔ B가 바뀌어요. 그다음 아래 버튼을 누르면 <b>A 1명 + B 1명</b>으로 팀이 짜여요.</p>
-      <div class="ab-cols">
-        <div class="ab-col"><div class="ab-title"><span class="ab-tag a">A</span>${aIds.length}명</div><div class="chips wrap">${aIds.map(abChip).join("") || '<span class="hint inline">없음</span>'}</div></div>
-        <div class="ab-col"><div class="ab-title"><span class="ab-tag b">B</span>${bIds.length}명</div><div class="chips wrap">${bIds.map(abChip).join("") || '<span class="hint inline">없음</span>'}</div></div>
+      <div class="ab-head"><b>${gl} 그룹 랜덤 편성</b><button class="btn ghost xs" data-act="abAuto">부수로 다시 나누기</button></div>
+      <p class="hint lead">이름을 누르면 ${G.join(" → ")} 순서로 그룹이 바뀌어요. 그다음 아래 버튼을 누르면 <b>${each}</b>으로 팀이 짜여요.</p>
+      <div class="ab-cols n${G.length}">
+        ${G.map((x) => `<div class="ab-col"><div class="ab-title"><span class="ab-tag ${x.toLowerCase()}">${x}</span>${inG(x).length}명</div><div class="chips wrap">${inG(x).map(abChip).join("") || '<span class="hint inline">없음</span>'}</div></div>`).join("")}
       </div>
-      <button class="btn primary block" data-act="randomAB">A 1명 + B 1명 랜덤 편성</button>
-      ${aIds.length !== bIds.length && aIds.length && bIds.length ? `<p class="hint">A ${aIds.length}명 · B ${bIds.length}명이라 남는 ${Math.abs(aIds.length - bIds.length)}명은 랜덤으로 다른 팀에 들어가 3명 팀이 돼요.</p>` : ""}
+      <button class="btn primary block" data-act="randomAB">${each} 랜덤 편성</button>
+      ${counts.some((c) => c !== counts[0]) && counts.every(Boolean) ? `<p class="hint">${G.map((x, i) => `${x} ${counts[i]}명`).join(" · ")}이라 남는 ${counts.reduce((a, c) => a + c, 0) - Math.min(...counts) * G.length}명은 랜덤으로 다른 팀에 들어가요.</p>` : ""}
     </div>` : "";
   return `<div class="team-editor">
     ${abBox}
     <div class="te-random">
-      ${isLeague ? `<button class="btn ghost sm" data-act="randomTeams" data-size="2">그냥 2인 1팀 랜덤</button>`
+      ${isLeague ? `<button class="btn ghost sm" data-act="randomTeams" data-size="${G.length}">그냥 ${G.length}인 1팀 랜덤</button>`
         : `<label class="inline">팀 수 <input type="number" min="2" max="20" value="${te.count}" data-chg="teamCount"></label>
            <button class="btn" data-act="randomTeams">랜덤 편성</button>`}
     </div>
@@ -887,7 +919,8 @@ function viewRanking() {
   const t = today();
   const evs = state.events.filter((e) => e.year === state.year && e.date <= t).sort((a, b) => a.date.localeCompare(b.date));
   const total = evs.length;
-  const known = (id) => state.members.some((m) => m.id === id);
+  // 연간 순위에는 게스트를 넣지 않음 (행사 안의 팀 점수·경기 기록에는 그대로 반영)
+  const known = (id) => state.members.some((m) => m.id === id && !isGuest(m));
   const tab = state.sortBy;
   const segBtn = (k, label) => `<button class="${tab === k ? "on" : ""}" data-act="sort" data-k="${k}">${label}</button>`;
   const segs = `<div class="seg" role="tablist">${segBtn("points", "종합 포인트")}${segBtn("rate", "탁구 승률")}${segBtn("att", "출석")}</div>`;
@@ -910,14 +943,15 @@ function viewRanking() {
         ${rows.map((r) => `<tr class="click ${r.id === state.me ? "me" : ""}" data-act="player" data-id="${r.id}"><td>${rk(r.rank)}</td><td class="nm l">${esc(r.name)}</td>
           ${scored.map((e) => (r.per[e.id] != null ? `<td class="num">${r.per[e.id]}</td>` : (e.attendees || []).includes(r.id) ? `<td class="num">0</td>` : `<td class="dim">·</td>`)).join("")}
           <td class="total">${r.sum}</td></tr>`).join("")}</tbody></table></div>
-        <p class="hint">이름을 누르면 개인 기록을 볼 수 있어요. · 는 불참, 날짜를 누르면 그 모임으로 이동해요. 모임 당일부터 집계돼요.</p>`
+        <p class="hint">이름을 누르면 개인 기록을 볼 수 있어요. · 는 불참, 날짜를 누르면 그 모임으로 이동해요. 모임 당일부터 집계돼요. 게스트는 순위에 나오지 않아요.</p>`
       : `<p class="empty">아직 점수가 입력된 모임이 없어요.<br>모임 페이지의 ‘종목별 결과’를 입력하면 여기에 쌓여요.</p>`}`;
   }
 
   if (tab === "rate") {
     const st = {};
     const g = (id) => (st[id] ??= { id, w: 0, l: 0 });
-    state.matches.forEach((m) => { g(m.winnerId).w++; g(m.loserId).l++; });
+    // 게스트가 낀 경기는 연간 승률에서 제외
+    state.matches.filter((m) => !guestId(m.winnerId) && !guestId(m.loserId)).forEach((m) => { g(m.winnerId).w++; g(m.loserId).l++; });
     const min = state.minGames;
     const all = Object.values(st).filter((r) => known(r.id)).map((r) => ({ ...r, n: r.w + r.l, name: memberName(r.id), rate: r.w / (r.w + r.l) }));
     const ok = all.filter((r) => r.n >= min).sort((a, b) => b.rate - a.rate || b.w - a.w || a.name.localeCompare(b.name, "ko"));
@@ -929,14 +963,14 @@ function viewRanking() {
       ${all.length ? `<div class="tbl-wrap"><table class="data-tbl"><thead><tr><th class="c-rk">순위</th><th class="l c-nm">이름</th><th>경기</th><th>승</th><th>패</th><th class="c-tot">승률</th></tr></thead><tbody>
         ${ok.map((r) => `<tr class="click ${r.id === state.me ? "me" : ""}" data-act="player" data-id="${r.id}"><td>${rk(r.rank)}</td><td class="nm l">${esc(r.name)}</td><td class="num">${r.n}</td><td class="num">${r.w}</td><td class="num">${r.l}</td><td class="total">${pct(r.rate)}</td></tr>`).join("")}
         ${rest.map((r) => `<tr class="click faded" data-act="player" data-id="${r.id}"><td>${rk(0)}</td><td class="nm l">${esc(r.name)}</td><td class="num">${r.n}</td><td class="num">${r.w}</td><td class="num">${r.l}</td><td class="num">${pct(r.rate)}</td></tr>`).join("")}
-        </tbody></table></div><p class="hint">이름을 누르면 모임별 전적(누구에게 이기고 졌는지)을 볼 수 있어요.${rest.length ? " 흐린 줄은 최소 경기 수 미달이에요." : ""}</p>`
+        </tbody></table></div><p class="hint">이름을 누르면 모임별 전적(누구에게 이기고 졌는지)을 볼 수 있어요. 게스트와 치른 경기는 승률에서 빠져요.${rest.length ? " 흐린 줄은 최소 경기 수 미달이에요." : ""}</p>`
       : `<p class="empty">아직 입력된 탁구 경기가 없어요.</p>`}`;
   }
 
   if (tab === "att") {
     const cnt = {};
     evs.forEach((e) => (e.attendees || []).forEach((id) => (cnt[id] = (cnt[id] || 0) + 1)));
-    const rows = withRank(state.members.filter((m) => m.active !== false || cnt[m.id])
+    const rows = withRank(state.members.filter((m) => !isGuest(m) && (m.active !== false || cnt[m.id]))
       .map((m) => ({ id: m.id, name: dispName(m), att: cnt[m.id] || 0 }))
       .sort((a, b) => b.att - a.att || a.name.localeCompare(b.name, "ko")), (r) => r.att);
     const full = total && rows.filter((r) => r.att === total).length;
@@ -1082,14 +1116,20 @@ function viewFees() {
   const head = `<div class="fee-row fee-head"><span class="fee-nm">이름</span><span class="months">${Array.from({ length: 12 }, (_, i) => `<i class="${i + 1 === curM && state.year === new Date().getFullYear() ? "now" : ""}">${i + 1}</i>`).join("")}</span><span class="fee-cnt">납부</span></div>`;
   const rows = shown.map((m) => {
     const p = paidOf(m.id);
+    // 12개월 모두 납부(연납)하면 달별 칸 대신 파란 막대 하나로 표시 (관리자는 막대를 누르면 달별 칸이 열려 한 달만 고칠 수 있음)
+    const bar = p.length === 12 && state.feeOpen !== m.id;
+    const barHtml = admin ? `<button class="year-bar" data-act="feeOpen" data-id="${m.id}" aria-label="${esc(m.name)} 연납 · 달별로 보기">납부 완료</button>`
+      : `<span class="year-bar" role="img" aria-label="1월부터 12월까지 납부 완료">납부 완료</span>`;
     return `<div class="fee-row ${m.id === state.me ? "me" : ""}">
       <span class="fee-nm click" data-act="player" data-id="${m.id}">${esc(dispName(m))}</span>
-      <span class="months">${Array.from({ length: 12 }, (_, i) => {
+      <span class="months ${bar ? "full" : ""}">${bar ? barHtml : Array.from({ length: 12 }, (_, i) => {
         const on = p.includes(i + 1);
         return admin ? `<button class="mo ${on ? "on" : ""}" data-act="toggleFee" data-id="${m.id}" data-m="${i + 1}" aria-label="${i + 1}월">${on ? "✓" : ""}</button>`
           : `<i class="mo ${on ? "on" : ""}" title="${i + 1}월">${on ? "✓" : ""}</i>`;
       }).join("")}</span>
-      ${admin ? `<button class="fee-cnt btn-cnt ${p.length === 12 ? "full" : ""}" data-act="payYear" data-id="${m.id}" title="연납 처리">${p.length === 12 ? "연납" : `${p.length}/12`}</button>`
+      ${admin ? (p.length === 12 && state.feeOpen === m.id
+        ? `<button class="fee-cnt btn-cnt" data-act="feeOpen" data-id="" title="달별 칸 접기">접기</button>`
+        : `<button class="fee-cnt btn-cnt ${p.length === 12 ? "full" : ""}" data-act="payYear" data-id="${m.id}" title="연납 처리">${p.length === 12 ? "연납" : `${p.length}/12`}</button>`)
         : `<span class="fee-cnt ${p.length === 12 ? "full" : ""}">${p.length === 12 ? "완납" : `${p.length}/12`}</span>`}</div>`;
   }).join("");
   const statusCard = `<section class="card">
@@ -1102,16 +1142,24 @@ function viewFees() {
     </div>
     ${unpaidOnly ? `<p class="filter-note">${curM}월까지 다 내지 않은 회원 ${shown.length}명만 보는 중 <button class="link-btn" data-act="feeFilter">전체 보기</button></p>` : ""}
     ${list.length ? (shown.length ? `<div class="fee-table">${head}${rows}</div>` : `<p class="empty">${curM}월까지 모두 납부했어요.</p>`) : `<p class="empty">회원을 먼저 등록하세요.</p>`}
-    <p class="hint">${admin ? "달 칸을 누르면 그 달 납부/미납이 바뀌고, 오른쪽 <b>납부 개월 수</b>를 누르면 12개월 한 번에 <b>연납 처리</b>돼요. " : ""}파란 칸이 납부한 달이에요. 이름을 누르면 개인 기록을 볼 수 있어요.</p></section>`;
+    <p class="hint">${admin ? "달 칸을 누르면 그 달 납부/미납이 바뀌고, 오른쪽 <b>납부 개월 수</b>를 누르면 12개월 한 번에 <b>연납 처리</b>돼요. " : ""}파란 칸이 납부한 달이고, 12개월을 모두 냈으면 파란 막대 하나로 보여요.${admin ? " 막대를 누르면 달별로 열려서 한 달만 고칠 수 있어요." : ""} 이름을 누르면 개인 기록을 볼 수 있어요.</p></section>`;
 
   return balCard + statusCard;
 }
+
+// 참가자 선택 화면의 "바로 추가" 입력 (기본은 게스트로 추가)
+const quickAddForm = `<form class="quick-add wrap" data-form="quickMember">
+  <input name="name" placeholder="명단에 없는 사람 바로 추가 (이름)" autocomplete="off">
+  <select name="grade" aria-label="부수"><option value="">부수</option>${[1, 2, 3, 4, 5].map((n) => `<option value="${n}">${n}부</option>`).join("")}</select>
+  <button class="btn">추가</button>
+  <label class="gopt"><input type="checkbox" name="guest" checked> 게스트 <small>(연간 개인 순위에서 제외)</small></label></form>`;
 
 // ----- 회원 ---------------------------------------------------------
 function viewMembers() {
   const admin = isAdmin();
   const active = state.members.filter((m) => m.active !== false).length;
-  const sleeping = state.members.length - active;
+  const guests = state.members.filter(isGuest);
+  const sleeping = state.members.length - active - guests.length;
   if (!admin) return `<section class="card"><div class="sec-head"><h2>회원 <span class="count">${active}명</span></h2></div>
     ${active ? (() => {
       const list = state.members.filter((m) => m.active !== false);
@@ -1133,7 +1181,7 @@ function viewMembers() {
       <button class="btn primary block">추가</button></form>`;
   return seed + add + `<section class="card">
     <div class="sec-head"><h2>회원 <span class="count">${active}명${sleeping ? ` · 휴면 ${sleeping}명` : ""}</span></h2></div>
-    ${state.members.length ? `<ul class="members">${[...state.members].sort((a, b) => roleRank(a) - roleRank(b)).map((m) => `
+    ${state.members.length - guests.length ? `<ul class="members">${state.members.filter((m) => !isGuest(m)).sort((a, b) => roleRank(a) - roleRank(b)).map((m) => `
       <li class="${m.active === false ? "inactive" : ""}"><span class="nm">${esc(dispName(m))} ${roleTag(m)}${m.active === false ? ` <span class="pill done">휴면</span>` : ""}</span>
       <span class="acts">
         <select class="xs-select grade-sel" data-chg="grade" data-id="${m.id}" aria-label="${esc(m.name)} 부수">
@@ -1143,7 +1191,16 @@ function viewMembers() {
         <button class="btn ghost xs" data-act="toggleActive" data-id="${m.id}">${m.active === false ? "복귀" : "휴면"}</button>
         <button class="btn ghost xs danger" data-act="deleteMember" data-id="${m.id}">삭제</button></span></li>`).join("")}</ul>`
       : `<p class="empty">등록된 회원이 없어요.</p>`}
-    <p class="hint">‘부수’를 고르면 앱 곳곳에서 이름 옆에 (1)처럼 표시돼요. 탈퇴 회원은 ‘휴면’으로 두면 기록이 유지되고 참가자 선택 목록에서만 빠져요.</p></section>`;
+    <p class="hint">‘부수’를 고르면 앱 곳곳에서 이름 옆에 (1)처럼 표시돼요. 탈퇴 회원은 ‘휴면’으로 두면 기록이 유지되고 참가자 선택 목록에서만 빠져요.</p></section>` + (guests.length ? `<section class="card">
+    <div class="sec-head"><h2>게스트 <span class="count">${guests.length}명</span></h2></div>
+    <ul class="members">${guests.map((m) => `<li><span class="nm">${esc(dispName(m))}</span>
+      <span class="acts">
+        <select class="xs-select grade-sel" data-chg="grade" data-id="${m.id}" aria-label="${esc(m.name)} 부수">
+          <option value="">부수</option>${[1, 2, 3, 4, 5].map((n) => `<option value="${n}" ${Number(m.grade) === n ? "selected" : ""}>${n}부</option>`).join("")}</select>
+        <button class="btn ghost xs" data-act="renameMember" data-id="${m.id}">이름</button>
+        <button class="btn ghost xs" data-act="guestToMember" data-id="${m.id}">회원 전환</button>
+        <button class="btn ghost xs danger" data-act="deleteMember" data-id="${m.id}">삭제</button></span></li>`).join("")}</ul>
+    <p class="hint">게스트는 모임 참가자 선택 화면에서 추가해요. 모임 안의 경기·팀 점수에는 그대로 반영되고, 연간 순위(포인트·승률·출석)와 회비에는 나오지 않아요. 가입하면 ‘회원 전환’을 누르세요. 지난 기록이 이어져요.</p></section>` : "");
 }
 
 // ---------------------------------------------------------------------
@@ -1267,7 +1324,7 @@ const actions = {
   editTeams(d) {
     const g = currentEvent()?.scoring?.games?.find((x) => x.id === d.g);
     const teams = JSON.parse(JSON.stringify(g?.teams || []));
-    state.teamEdit = { g: d.g, teams, active: teams[0]?.id || null, count: Math.max(2, teams.length || 4), groups: { ...(g?.groups || {}) } };
+    state.teamEdit = { g: d.g, teams, active: teams[0]?.id || null, count: Math.max(2, teams.length || 4), groups: { ...(g?.groups || {}) }, groupNames: fmtOf(g).groups };
     if ((g?.type || "manual") === "league") fillGroups(state.teamEdit, false);
     state.tieOpen = null; render(true);
   },
@@ -1307,12 +1364,19 @@ const actions = {
     const teams = Array.from({ length: n }, (_, i) => ({ id: "t" + Date.now().toString(36) + i, name: `${i + 1}팀`, members: [] }));
     ids.forEach((id, i) => teams[d.size ? Math.min(Math.floor(i / Number(d.size)), n - 1) : i % n].members.push(id));
     te.teams = teams; te.active = teams[0].id;
-    if (d.size && ids.length % Number(d.size)) toast(`인원이 홀수라 ${teams.at(-1).name}이 3명이에요`);
+    if (d.size && ids.length % Number(d.size)) toast(`인원이 딱 나눠지지 않아 ${teams.at(-1).name}이 ${teams.at(-1).members.length}명이에요`);
     render(true);
   },
   // A·B 그룹: 이름을 누르면 A ↔ B
-  abToggle(d) { const gr = state.teamEdit.groups; gr[d.id] = gr[d.id] === "A" ? "B" : "A"; render(true); },
-  abAuto() { fillGroups(state.teamEdit, true); toast("부수 기준으로 A·B를 나눴어요 (부수가 높은 절반이 A)"); render(true); },
+  abToggle(d) {
+    const te = state.teamEdit, G = te.groupNames || ["A", "B"];
+    te.groups[d.id] = G[(G.indexOf(te.groups[d.id]) + 1) % G.length]; render(true);
+  },
+  abAuto() {
+    const G = state.teamEdit.groupNames || ["A", "B"];
+    fillGroups(state.teamEdit, true);
+    toast(`부수 기준으로 ${G.join("·")}를 나눴어요 (부수가 높은 순으로 ${G[0]}부터)`); render(true);
+  },
   randomAB() {
     const ev = currentEvent();
     const te = state.teamEdit;
@@ -1322,16 +1386,16 @@ const actions = {
       te.resetOnSave = true;
     }
     const ids = teamPoolIds();
-    const A = shuffle(ids.filter((id) => te.groups[id] === "A"));
-    const B = shuffle(ids.filter((id) => te.groups[id] !== "A"));
-    if (!A.length || !B.length) return toast("A와 B에 각각 1명 이상 있어야 해요");
-    const n = Math.min(A.length, B.length);
-    const teams = Array.from({ length: n }, (_, i) => ({ id: "t" + Date.now().toString(36) + i, name: `${i + 1}팀`, members: [A[i], B[i]] }));
-    const extra = shuffle([...A.slice(n), ...B.slice(n)]);
+    const G = te.groupNames || ["A", "B"];
+    const groups = G.map((x) => shuffle(ids.filter((id) => te.groups[id] === x)));
+    if (groups.some((x) => !x.length)) return toast(`${G.join("·")} 그룹에 각각 1명 이상 있어야 해요`);
+    const n = Math.min(...groups.map((x) => x.length));
+    const teams = Array.from({ length: n }, (_, i) => ({ id: "t" + Date.now().toString(36) + i, name: `${i + 1}팀`, members: groups.map((x) => x[i]) }));
+    const extra = shuffle(groups.flatMap((x) => x.slice(n)));
     const order = shuffle(teams.map((_, i) => i));
     extra.forEach((id, k) => teams[order[k % n]].members.push(id));
     te.teams = teams; te.active = teams[0].id;
-    toast(extra.length ? `A ${A.length}명 · B ${B.length}명이라 ${extra.length}개 팀은 3명이에요` : `A 1명 + B 1명으로 ${n}개 팀을 만들었어요`);
+    toast(extra.length ? `${extra.length}명이 남아서 ${Math.min(extra.length, n)}개 팀은 ${G.length + 1}명이에요` : `${G.map((x) => `${x} 1명`).join(" + ")}으로 ${n}개 팀을 만들었어요`);
     render(true);
   },
   cancelTeams() { state.teamEdit = null; render(true); },
@@ -1488,6 +1552,7 @@ const actions = {
     toast(full ? `${m.name} 님 납부 기록을 지웠어요` : `${m.name} 님 연납 처리했어요`);
   },
   feeFilter() { state.feeFilter = !state.feeFilter; render(true); },
+  feeOpen(d) { state.feeOpen = d.id || null; render(true); },
   editBalance() { state.editBalance = !state.editBalance; render(true); },
   async shareBalance() {
     const f = state.fees || {};
@@ -1516,6 +1581,12 @@ const actions = {
     const m = state.members.find((x) => x.id === d.id);
     await updateDoc(doc(db, "members", d.id), { active: m.active === false });
   },
+  async guestToMember(d) {
+    const m = state.members.find((x) => x.id === d.id);
+    if (!m || !confirm(`${m.name} 님을 정식 회원으로 전환할까요?\n지난 모임 기록은 그대로 이어지고, 연간 순위에도 들어가요.`)) return;
+    await updateDoc(doc(db, "members", d.id), { guest: false, active: true });
+    toast(`${m.name} 님을 회원으로 전환했어요`);
+  },
   async deleteMember(d) {
     if (!confirm(`${memberName(d.id)} 님을 완전히 삭제할까요?\n경기 기록에는 '(삭제된 회원)'으로 남습니다. 보통은 '휴면'을 권장합니다.`)) return;
     await deleteDoc(doc(db, "members", d.id));
@@ -1533,6 +1604,19 @@ function resetGameResults(g, batch) {
   g.places = {}; g.ranks = {}; g.records = {}; g.league = {}; g.closed = false;
 }
 const changes = {
+  async leagueFormat(el) {
+    const sc = scoringOf(el.dataset.id);
+    const g = sc.games.find((x) => x.id === el.dataset.g);
+    if (!g) return;
+    if (hasResults(g)) { toast("결과가 있어서 방식을 바꿀 수 없어요. ‘결과 삭제’ 후 바꿔 주세요"); render(true); return; }
+    g.format = el.value;
+    delete g.groups; // 그룹 수가 달라지므로 A·B(·C)는 다시 나눔
+    await saveScoring(el.dataset.id, sc);
+    const f = fmtOf(g);
+    const size = f.groups.length;
+    const bad = (g.teams || []).some((t) => (t.members || []).length < size);
+    toast(`${f.label} 방식으로 바꿨어요${bad ? ` · ${size}명보다 적은 팀이 있으니 ‘팀 편성’을 다시 해 주세요` : ""}`);
+  },
   async photoFiles(el) {
     const ev = state.events.find((e) => e.id === el.dataset.id);
     const room = PHOTO_LIMIT - photosOf(ev.id).length;
@@ -1627,17 +1711,23 @@ const forms = {
   async quickMember(fd, f) {
     const name = fd.get("name").trim();
     if (!name) return;
+    const grade = Number(fd.get("grade")) || null;
+    const guest = !!fd.get("guest");
     const exist = state.members.find((m) => m.name === name);
     if (exist) {
       state.attendDraft.add(exist.id);
-      if (exist.active === false) await updateDoc(doc(db, "members", exist.id), { active: true });
+      const patch = {};
+      // 휴면 회원은 복귀, 게스트는 게스트 그대로 (정식 회원을 게스트로 바꾸지는 않음)
+      if (exist.active === false && !isGuest(exist)) patch.active = true;
+      if (grade && Number(exist.grade) !== grade) patch.grade = grade;
+      if (Object.keys(patch).length) await updateDoc(doc(db, "members", exist.id), patch);
     } else {
       const ref = doc(collection(db, "members"));
-      await setDoc(ref, { name, active: true, createdAt: serverTimestamp() });
+      await setDoc(ref, { name, active: !guest, ...(guest ? { guest: true } : {}), ...(grade ? { grade } : {}), createdAt: serverTimestamp() });
       state.attendDraft.add(ref.id);
     }
-    f.reset(); document.activeElement?.blur();
-    toast(`${name} 님을 참가자에 넣었습니다 (저장을 눌러 확정)`); render(true);
+    f.reset(); f.querySelector('[name="guest"]').checked = guest; document.activeElement?.blur();
+    toast(`${name} 님을 ${guest && !(exist && !isGuest(exist)) ? "게스트로 " : ""}참가자에 넣었습니다 (저장을 눌러 확정)`); render(true);
   },
   async login(fd) {
     try {
@@ -1742,7 +1832,9 @@ function openPlayer(id, focus) {
   const evs = state.events.filter((e) => e.year === state.year && e.date <= t).sort((a, b) => a.date.localeCompare(b.date));
   const ms = state.matches.filter((x) => x.winnerId === id || x.loserId === id)
     .sort((a, b) => b.date.localeCompare(a.date) || ts(a) - ts(b));
-  const w = ms.filter((x) => x.winnerId === id).length, l = ms.length - w;
+  // 연간 전적(위 요약)은 게스트전을 뺀 값, 아래 모임별 목록에는 게스트전도 표시
+  const rankMs = isGuest(m) ? ms : ms.filter((x) => !guestId(x.winnerId) && !guestId(x.loserId));
+  const w = rankMs.filter((x) => x.winnerId === id).length, l = rankMs.length - w;
   const att = evs.filter((e) => (e.attendees || []).includes(id)).length;
   let pts = 0;
   evs.forEach((e) => { if (e.scoring?.games?.length) { const r = scoreTotals(e.scoring).find((x) => x.id === id); if (r) pts += r.sum; } });
@@ -1760,7 +1852,7 @@ function openPlayer(id, focus) {
       <ul class="pl-matches">${list.map((x) => {
         const win = x.winnerId === id, opp = win ? x.loserId : x.winnerId;
         return `<li><span class="res ${win ? "w" : "l"}">${win ? "승" : "패"}</span><span class="opp">vs <b>${esc(memberName(opp))}</b></span>
-          ${x.score ? `<span class="tag">${esc(x.score)}</span>` : ""}<span class="tag ${x.note ? "soft" : ""}">${x.note ? esc(x.note) : "자유 경기"}</span></li>`;
+          ${x.score ? `<span class="tag">${esc(x.score)}</span>` : ""}<span class="tag ${x.note ? "soft" : ""}">${x.note ? esc(x.note) : "자유 경기"}</span>${!isGuest(m) && guestId(opp) ? '<span class="tag soft">승률 제외</span>' : ""}</li>`;
       }).join("")}</ul></div>`;
   }).join("") : `<p class="empty">${state.year}년에 기록된 경기가 없어요.</p>`;
 
@@ -1781,7 +1873,8 @@ function openPlayer(id, focus) {
   watchFees(state.year);
   const feePaid = paidOf(id);
   const secFee = state.fees ? `<section class="pl-sec"><h3>회비 납부 <span class="count">${feePaid.length}/12개월</span></h3>
-    <div class="months big">${Array.from({ length: 12 }, (_, i) => `<i class="mo ${feePaid.includes(i + 1) ? "on" : ""}">${i + 1}</i>`).join("")}</div></section>` : "";
+    ${feePaid.length === 12 ? `<div class="year-bar big">납부 완료</div>`
+      : `<div class="months big">${Array.from({ length: 12 }, (_, i) => `<i class="mo ${feePaid.includes(i + 1) ? "on" : ""}">${i + 1}</i>`).join("")}</div>`}</section>` : "";
   const secAtt = `<section class="pl-sec"><h3>출석 기록 <span class="count">${att}/${evs.length}회</span></h3>${attHtml}</section>`;
 
   $("#modal").innerHTML = `<div class="sheet" role="dialog" aria-label="${esc(memberName(id))} 기록">
@@ -1789,7 +1882,7 @@ function openPlayer(id, focus) {
       <button class="x-btn" data-act="closeModal">닫기</button></div>
     <div class="pl-stats">
       <div><span>종합 포인트</span><b>${pts}<small>점</small></b></div>
-      <div><span>탁구</span><b>${w}<small>승</small> ${l}<small>패</small></b><em>${ms.length ? pct(w / ms.length) : "-"}</em></div>
+      <div><span>탁구</span><b>${w}<small>승</small> ${l}<small>패</small></b><em>${rankMs.length ? pct(w / rankMs.length) : "-"}</em></div>
       <div><span>출석</span><b>${att}<small>/${evs.length}회</small></b></div>
     </div>
     <div class="sheet-body">${focus === "att" ? secAtt + secMatch : secMatch + secAtt}${secFee}</div></div>`;
