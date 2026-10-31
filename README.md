@@ -8,6 +8,9 @@ GitHub Pages(화면) + Firebase Firestore(데이터) 기반의 동호회 운영 
 - **경기 입력**: 이긴 사람 → 상대 선택 → (세트 스코어 선택) → 저장. 로그인 없이 누구나 입력, 5분 안에는 취소 가능
 - **연간 순위**: 1년 누적 승률·승수·출석률 (최소 경기 수 필터)
 - **회원 관리**: 여러 명 한 번에 추가, 이름 수정, 휴면 처리
+- **종목별 결과**: 행사마다 종목(팀 리그·팀 순위·순위 직접 지정)을 만들고 순위별 점수를 합산. 팀 리그는 단식-단식-복식 또는 단식-단식-단식 중 선택
+- **게스트**: 참가자 선택 화면에서 추가(`G이름(부수)`로 표시). 행사 안 기록에는 반영, 연간 순위·회비에서는 제외
+- **회비**: 12개월 완납이면 파란 막대 하나로 표시
 
 ## 권한
 | | 일반 회원 | 운영진(로그인) |
@@ -53,7 +56,7 @@ Firestore Database → **규칙** 탭에 `firestore.rules` 내용을 통째로 �
 
 ## 데이터 구조 (Firestore)
 ```
-members/{id}  { name, active, createdAt }
+members/{id}  { name, active, grade?, guest?, createdAt }   ※ 게스트는 guest:true, active:false
 events/{id}   { date:"2026-10-27", year:2026, title, place, attendees:[memberId…], createdAt }
 matches/{id}  { eventId, date, year, winnerId, loserId, score:"3:1", createdAt }
 ```
