@@ -27,7 +27,7 @@ const ADMIN_EMAILS = ["gydnjshw@naver.com"];
 // 관리자 첫 화면에 "바로 만들기" 버튼으로 나오는 준비된 행사 (만들고 나면 버튼은 사라짐)
 const PRESET_EVENT = {
   date: "2026-10-31", title: "10월 정기모임", place: "",
-  games: [{ name: "탁구", type: "league" }, { name: "100초 미션", type: "teams" }, { name: "스크린야구", type: "teams" }],
+  games: [{ name: "탁구", type: "league" }, { name: "100초 미션", type: "teams" }, { name: "스크린야구", type: "teams", scale: [20, 7, 5] }],
   scale: [10, 8, 5],
   notice: `티원 여러분 안녕하세요~ 벌써 10월이 다가왔네요. 모임이 얼마 남지 않았습니다!!
 모임 안내 한 번씩 읽어주시고 참고해 주세요!!
@@ -598,10 +598,13 @@ function isProvisional(g) {
   return s.started && !((s.pairs && s.done === s.pairs) || g.closed);
 }
 
+// 종목별 배점: 종목에 따로 정한 배점(g.scale)이 있으면 그것, 없으면 모임 기본 배점
+const scaleOf = (g, sc) => (g?.scale?.length ? g.scale : sc?.scale || [10, 8, 5]);
+
 function scoreTotals(sc) {
-  const scale = sc.scale || [];
   const tot = {};
   (sc.games || []).forEach((g) => {
+    const scale = scaleOf(g, sc);
     const places = gamePlaces(g);
     scale.forEach((pt, i) => (places[i + 1] || []).forEach((id) => {
       const r = (tot[id] ??= { id, sum: 0, per: {} });
@@ -662,7 +665,7 @@ function scoringSection(ev, att) {
   const provGames = games.filter(isProvisional);
   const provNote = provGames.length && rows.length ? `<div class="prov-note"><b>${provGames.map((g) => esc(g.name)).join(", ")} 진행 중</b> · 현재 순위 기준 <b>잠정 점수</b>예요. 리그가 끝나면 확정돼요.</div>` : "";
   const finalCard = `<section class="card">
-    <div class="sec-head"><h2>${provGames.length && rows.length ? "현재 순위" : "최종 순위"}</h2><span class="sub">${scale.map((pt, i) => `${i + 1}등 ${pt}점`).join(" · ")}</span></div>
+    <div class="sec-head"><h2>${provGames.length && rows.length ? "현재 순위" : "최종 순위"}</h2><span class="sub">${scale.map((pt, i) => `${i + 1}등 ${pt}점`).join(" · ")}${games.filter((g) => g.scale?.length).map((g) => ` · ${esc(g.name)} ${g.scale.join("/")}점`).join("")}</span></div>
     ${provNote}
     ${myRecord(sc, rows, games, scale, att)}
     ${table}</section>`;
@@ -670,7 +673,7 @@ function scoringSection(ev, att) {
   // 종목별 결과
   const cur = games.find((g) => g.id === state.gameTab) || games[0];
   const chips = games.length > 1 ? `<div class="chips">${games.map((g) => `<button class="${g === cur ? "on" : ""}" data-act="gameTab" data-g="${g.id}">
-      <i class="st ${gameStatus(g, scale)}"></i>${esc(g.name)}</button>`).join("")}</div>` : "";
+      <i class="st ${gameStatus(g, scaleOf(g, sc))}"></i>${esc(g.name)}</button>`).join("")}</div>` : "";
 
   const tools = admin ? `<details class="score-tools"><summary>종목·점수 설정</summary>
       <form data-form="addGame" data-id="${ev.id}" class="tool-form">
@@ -684,7 +687,7 @@ function scoringSection(ev, att) {
 
   const gamesCard = `<section class="card">
     <div class="sec-head"><h2>종목별 결과</h2>${games.length ? `<span class="sub">${games.length}종목</span>` : ""}</div>
-    ${games.length ? chips + gameBody(ev, cur, scale, pool, admin)
+    ${games.length ? chips + gameBody(ev, cur, scaleOf(cur, sc), pool, admin)
       : `<p class="empty">${admin ? "아래 ‘종목·점수 설정’에서 종목을 먼저 추가하세요." : "아직 종목이 없어요."}</p>`}
     ${tools}</section>`;
 
@@ -703,7 +706,7 @@ function myRecord(sc, rows, games, scale, att) {
   const tiles = games.map((g) => {
     const places = gamePlaces(g);
     const pl = Number(Object.keys(places).find((k) => (places[k] || []).includes(me))) || 0;
-    const pt = pl ? scale[pl - 1] : undefined;
+    const pt = pl ? scaleOf(g, sc)[pl - 1] : undefined;
     const team = (g.teams || []).find((t) => (t.members || []).includes(me));
     return `<div class="tile"><div class="t-name">${esc(g.name)}</div>
       <div class="t-res">${pl ? `${pl}등` : "-"}${team ? `<small>${esc(team.name)}</small>` : ""}</div>
@@ -720,8 +723,9 @@ function myRecord(sc, rows, games, scale, att) {
 function gameBody(ev, g, scale, pool, admin) {
   const type = g.type || "manual";
   const st = gameStatus(g, scale);
-  const head = `<div class="game-head"><span class="badge">${GAME_TYPES[type]}${type === "league" ? ` · ${fmtOf(g).label}` : ""}</span><span class="badge ${st}">${ST_TEXT[st]}</span></div>
+  const head = `<div class="game-head"><span class="badge">${GAME_TYPES[type]}${type === "league" ? ` · ${fmtOf(g).label}` : ""}</span><span class="badge ${st}">${ST_TEXT[st]}</span>${g.scale?.length ? `<span class="badge">배점 ${g.scale.join("·")}</span>` : ""}</div>
     ${admin ? `<div class="admin-tools">
+      <button class="btn ghost xs" data-act="gameScale" data-id="${ev.id}" data-g="${g.id}">배점</button>
       ${type !== "manual" ? `<button class="btn ghost xs" data-act="editTeams" data-g="${g.id}">팀 편성</button>` : ""}
       ${type !== "league" ? `<select class="xs-select" data-chg="gameType" data-id="${ev.id}" data-g="${g.id}" aria-label="진행 방식">
         ${Object.entries(GAME_TYPES).filter(([k]) => k !== "league").map(([k, v]) => `<option value="${k}" ${k === type ? "selected" : ""}>${v}</option>`).join("")}</select>` : ""}
@@ -1289,7 +1293,7 @@ const actions = {
     const ref = await addDoc(collection(db, "events"), {
       date: P.date, year: Number(P.date.slice(0, 4)), title: P.title, place: P.place, notice: P.notice,
       attendees: [], createdAt: serverTimestamp(),
-      scoring: { scale: P.scale, games: P.games.map((x, i) => ({ id: Date.now().toString(36) + i, name: x.name, type: x.type, places: {} })) },
+      scoring: { scale: P.scale, games: P.games.map((x, i) => ({ id: Date.now().toString(36) + i, name: x.name, type: x.type, ...(x.scale ? { scale: x.scale } : {}), places: {} })) },
     });
     toast("행사를 만들었습니다. 참가자를 넣어 주세요");
     location.hash = "#/event/" + ref.id;
@@ -1593,6 +1597,21 @@ const actions = {
     await setDoc(doc(db, "fees", String(state.year)), { paid: { [d.id]: full ? [] : Array.from({ length: 12 }, (_, i) => i + 1) } }, { merge: true });
     toast(full ? `${m.name} 님 납부 기록을 지웠어요` : `${m.name} 님 연납 처리했어요`);
   },
+  // 종목별 배점 (예: 스크린야구만 20, 7, 5). 비우면 모임 기본 배점으로 돌아감
+  async gameScale(d) {
+    const sc = scoringOf(d.id);
+    const g = sc.games.find((x) => x.id === d.g);
+    if (!g) return;
+    const v = prompt(`'${g.name}' 배점 (1등부터 쉼표로 · 예: 20, 7, 5)\n비우면 모임 기본 배점(${(sc.scale || [10, 8, 5]).join(", ")})을 써요`, (g.scale || []).join(", "));
+    if (v === null) return;
+    const scale = v.split(/[,\s]+/).map(Number).filter((n) => n > 0);
+    if (v.trim() && !scale.length) return toast("점수를 숫자로 입력하세요 (예: 20, 7, 5)");
+    if (scale.length) g.scale = scale; else delete g.scale;
+    const eff = scaleOf(g, sc);
+    Object.keys(g.places || {}).forEach((k) => { if (Number(k) > eff.length) delete g.places[k]; });
+    await saveScoring(d.id, sc);
+    toast(scale.length ? `${g.name} 배점을 ${scale.join(", ")}점으로 바꿨어요` : `${g.name} 배점을 기본(${eff.join(", ")})으로 되돌렸어요`);
+  },
   feeFilter() { state.feeFilter = !state.feeFilter; render(true); },
   feeOpen(d) { state.feeOpen = d.id || null; render(true); },
   editBalance() { state.editBalance = !state.editBalance; render(true); },
@@ -1746,7 +1765,7 @@ const forms = {
     if (!scale.length) return toast("점수를 숫자로 입력하세요 (예: 10, 8, 5)");
     const sc = scoringOf(f.dataset.id);
     sc.scale = scale;
-    sc.games.forEach((g) => Object.keys(g.places || {}).forEach((k) => { if (Number(k) > scale.length) delete g.places[k]; }));
+    sc.games.forEach((g) => { if (!g.scale?.length) Object.keys(g.places || {}).forEach((k) => { if (Number(k) > scale.length) delete g.places[k]; }); });
     await saveScoring(f.dataset.id, sc);
     document.activeElement?.blur(); toast("점수를 저장했습니다"); render(true);
   },
