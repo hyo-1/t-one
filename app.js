@@ -231,7 +231,7 @@ onAuthStateChanged(auth, (u) => { state.user = u; render(); });
 window.addEventListener("hashchange", () => {
   state.pick = { winner: null, loser: null, score: "" };
   state.editAttend = false; state.editEvent = false; state.showNewEvent = false; state.placePick = null;
-  state.teamEdit = null; state.tieOpen = null; state.rubberPick = null; state.freeInput = false; state.editBalance = false; state.feeOpen = null;
+  state.teamEdit = null; state.tieOpen = null; state.rubberPick = null; state.freeInput = false; state.editBalance = false; state.feeOpen = null; state.partEdit = null;
   render(true);
   window.scrollTo(0, 0);
 });
@@ -598,6 +598,10 @@ function isProvisional(g) {
   return s.started && !((s.pairs && s.done === s.pairs) || g.closed);
 }
 
+// 종목 참가자: 종목에 따로 정한 명단(g.participants)이 있으면 그 사람들, 없으면 그날 참가자 전체
+const poolIdsOf = (ev, g) => (g?.participants?.length ? g.participants
+  : ev?.attendees?.length ? ev.attendees : state.members.filter((m) => m.active !== false).map((m) => m.id));
+
 // 종목별 배점: 종목에 따로 정한 배점(g.scale)이 있으면 그것, 없으면 모임 기본 배점
 const scaleOf = (g, sc) => (g?.scale?.length ? g.scale : sc?.scale || [10, 8, 5]);
 
@@ -650,7 +654,6 @@ function scoringSection(ev, att) {
   const scale = sc.scale || [10, 8, 5];
   const games = sc.games || [];
   const rows = scoreTotals(sc);
-  const pool = att.length ? byName(att) : state.members.filter((m) => m.active !== false);
 
   // 최종 순위
   const table = rows.length ? `<div class="tbl-wrap"><table class="data-tbl final-tbl">
@@ -687,7 +690,7 @@ function scoringSection(ev, att) {
 
   const gamesCard = `<section class="card">
     <div class="sec-head"><h2>종목별 결과</h2>${games.length ? `<span class="sub">${games.length}종목</span>` : ""}</div>
-    ${games.length ? chips + gameBody(ev, cur, scaleOf(cur, sc), pool, admin)
+    ${games.length ? chips + gameBody(ev, cur, scaleOf(cur, sc), byName(poolIdsOf(ev, cur)), admin)
       : `<p class="empty">${admin ? "아래 ‘종목·점수 설정’에서 종목을 먼저 추가하세요." : "아직 종목이 없어요."}</p>`}
     ${tools}</section>`;
 
@@ -724,7 +727,10 @@ function gameBody(ev, g, scale, pool, admin) {
   const type = g.type || "manual";
   const st = gameStatus(g, scale);
   const head = `<div class="game-head"><span class="badge">${GAME_TYPES[type]}${type === "league" ? ` · ${fmtOf(g).label}` : ""}</span><span class="badge ${st}">${ST_TEXT[st]}</span>${g.scale?.length ? `<span class="badge">배점 ${g.scale.join("·")}</span>` : ""}</div>
+    ${g.participants?.length ? (() => { const out = (ev.attendees || []).filter((id) => !g.participants.includes(id));
+      return `<p class="hint part-note">이 종목 참가 <b>${g.participants.length}명</b>${out.length ? ` · 불참 ${out.length}명 (${byName(out).map((m) => esc(m.name)).join(", ")})` : ""}</p>`; })() : ""}
     ${admin ? `<div class="admin-tools">
+      <button class="btn ghost xs" data-act="editPart" data-id="${ev.id}" data-g="${g.id}">참가자</button>
       <button class="btn ghost xs" data-act="gameScale" data-id="${ev.id}" data-g="${g.id}">배점</button>
       ${type !== "manual" ? `<button class="btn ghost xs" data-act="editTeams" data-g="${g.id}">팀 편성</button>` : ""}
       ${type !== "league" ? `<select class="xs-select" data-chg="gameType" data-id="${ev.id}" data-g="${g.id}" aria-label="진행 방식">
@@ -735,12 +741,27 @@ function gameBody(ev, g, scale, pool, admin) {
       ${hasResults(g) ? `<button class="btn ghost xs danger" data-act="resetGame" data-id="${ev.id}" data-g="${g.id}">결과 삭제</button>` : ""}
       ${hasResults(g) || (g.teams || []).length ? `<button class="btn ghost xs danger" data-act="wipeGame" data-id="${ev.id}" data-g="${g.id}">종목 초기화</button>` : ""}</div>` : ""}`;
   let body;
-  if (state.teamEdit?.g === g.id) body = teamEditor(ev, g, pool);
+  if (state.partEdit?.g === g.id) body = partEditor(ev, g);
+  else if (state.teamEdit?.g === g.id) body = teamEditor(ev, g, pool);
   else if (type === "manual") body = manualPlaces(ev, g, scale, pool, admin);
   else if (!(g.teams || []).length) body = `<p class="empty">${admin ? "‘팀 편성’을 눌러 팀을 먼저 짜 주세요." : "아직 팀이 정해지지 않았어요."}</p>`;
   else if (type === "teams") body = teamRanking(ev, g, scale, admin);
   else body = leagueView(ev, g, scale, admin);
   return `<div class="game">${head}${body}</div>`;
+}
+
+// 종목 참가자 편집: 늦게 온 사람은 여기서 넣으면 오늘 출석에도 같이 들어가고, 이 종목에서 빠져도 오늘 출석은 유지
+function partEditor(ev, g) {
+  const pe = state.partEdit, att = new Set(ev.attendees || []);
+  const list = state.members.filter((m) => m.active !== false || att.has(m.id) || pe.draft.has(m.id)).sort((a, b) => isGuest(a) - isGuest(b));
+  return `<div class="part-editor">
+    <p class="hint lead">이 종목에 참가하는 사람을 고르세요 · <b>${pe.draft.size}명</b> 선택<br>오늘 참가자 목록에 없는 사람을 고르면 <b>오늘 출석에도 같이 들어가요.</b> 이 종목에서 빼도 오늘 출석은 그대로예요.</p>
+    <div class="chips wrap">${list.map((m) => `<button class="chip ${isGuest(m) ? "guest" : ""} ${pe.draft.has(m.id) ? "on" : ""}" data-act="togglePart" data-id="${m.id}">${esc(dispName(m))}${pe.draft.has(m.id) && !att.has(m.id) ? "<small>+출석</small>" : ""}</button>`).join("")}</div>
+    ${quickAddForm}
+    <div class="row"><button class="btn ghost sm" data-act="partAll">오늘 참가자 전체</button><button class="btn ghost sm" data-act="partNone">전체 해제</button>
+      ${g.participants?.length ? `<button class="btn ghost sm" data-act="partReset" data-id="${ev.id}" data-g="${g.id}">처음대로</button>` : ""}
+      <span class="spacer"></span><button class="btn ghost" data-act="cancelPart">취소</button>
+      <button class="btn primary" data-act="savePart" data-id="${ev.id}" data-g="${g.id}">저장</button></div></div>`;
 }
 
 // 직접 지정 방식
@@ -879,7 +900,7 @@ function rubberRow(ev, g, key, A, B, idx, label, r, admin) {
 // 팀 편성 대상: 그 모임 참가자 (없으면 활동 회원)
 function teamPoolIds() {
   const ev = currentEvent();
-  return ev?.attendees?.length ? ev.attendees : state.members.filter((m) => m.active !== false).map((m) => m.id);
+  return poolIdsOf(ev, ev?.scoring?.games?.find((x) => x.id === state.teamEdit?.g));
 }
 // 그룹 채우기: 부수가 높은(숫자가 작은) 순으로 나눔 (2그룹이면 절반씩 A·B, 3그룹이면 1/3씩 A·B·C)
 // force=false면 이미 정한 사람은 그대로
@@ -897,6 +918,7 @@ function fillGroups(te, force) {
 // 팀 편성 편집기
 function teamEditor(ev, g, pool) {
   const te = state.teamEdit;
+  pool = byName([...new Set([...pool.map((m) => m.id), ...te.teams.flatMap((t) => t.members)])]);
   const where = {};
   te.teams.forEach((t) => t.members.forEach((id) => (where[id] = t)));
   const isLeague = (g.type || "manual") === "league";
@@ -1284,7 +1306,19 @@ const actions = {
   attendNone() { state.attendDraft.clear(); render(true); },
   cancelAttend() { state.editAttend = false; render(true); },
   async saveAttend(d) {
-    await updateDoc(doc(db, "events", d.id), { attendees: [...state.attendDraft] });
+    const upd = { attendees: [...state.attendDraft] };
+    // 오늘 참가자에서 뺀 사람은 종목 참가자 명단에서도 함께 빠짐
+    const ev = state.events.find((e) => e.id === d.id);
+    if ((ev?.scoring?.games || []).some((g) => g.participants?.length)) {
+      const sc = scoringOf(d.id);
+      sc.games.forEach((g) => {
+        if (!g.participants?.length) return;
+        const keep = g.participants.filter((id) => state.attendDraft.has(id));
+        if (keep.length) g.participants = keep; else delete g.participants;
+      });
+      upd.scoring = sc;
+    }
+    await updateDoc(doc(db, "events", d.id), upd);
     state.editAttend = false; toast(`참가자 ${state.attendDraft.size}명 저장`); render(true);
   },
   async createPreset(d, el) {
@@ -1402,7 +1436,7 @@ const actions = {
       if (!confirm("랜덤으로 다시 짜면 팀이 새로 만들어져서, 저장할 때 이 종목의 기존 결과가 초기화돼요. 계속할까요?\n(새로 온 사람만 넣으려면 팀을 고르고 이름을 탭하세요)")) return;
       state.teamEdit.resetOnSave = true;
     }
-    const att = ev?.attendees?.length ? ev.attendees : state.members.filter((m) => m.active !== false).map((m) => m.id);
+    const att = teamPoolIds();
     if (att.length < 2) return toast("참가자를 먼저 넣어 주세요");
     const ids = shuffle(att);
     const te = state.teamEdit;
@@ -1612,6 +1646,39 @@ const actions = {
     await saveScoring(d.id, sc);
     toast(scale.length ? `${g.name} 배점을 ${scale.join(", ")}점으로 바꿨어요` : `${g.name} 배점을 기본(${eff.join(", ")})으로 되돌렸어요`);
   },
+  // ---- 종목 참가자 ----
+  editPart(d) {
+    const ev = state.events.find((e) => e.id === d.id);
+    const g = ev?.scoring?.games?.find((x) => x.id === d.g);
+    state.teamEdit = null; state.tieOpen = null;
+    state.partEdit = { g: d.g, draft: new Set(poolIdsOf(ev, g)) }; render(true);
+  },
+  togglePart(d) { const s = state.partEdit.draft; s.has(d.id) ? s.delete(d.id) : s.add(d.id); render(true); },
+  partAll() { (currentEvent()?.attendees || []).forEach((id) => state.partEdit.draft.add(id)); render(true); },
+  partNone() { state.partEdit.draft.clear(); render(true); },
+  cancelPart() { state.partEdit = null; render(true); },
+  async partReset(d) {
+    const sc = scoringOf(d.id);
+    const g = sc.games.find((x) => x.id === d.g);
+    if (!g || !confirm(`'${g.name}' 참가자를 처음대로(오늘 참가자 전체) 되돌릴까요?`)) return;
+    delete g.participants;
+    await saveScoring(d.id, sc);
+    state.partEdit = null; toast("오늘 참가자 전체로 되돌렸어요"); render(true);
+  },
+  async savePart(d) {
+    const ids = [...state.partEdit.draft];
+    if (!ids.length) return toast("참가자를 1명 이상 골라 주세요");
+    const ev = state.events.find((e) => e.id === d.id);
+    const sc = scoringOf(d.id);
+    const g = sc.games.find((x) => x.id === d.g);
+    if (!g) return;
+    g.participants = ids;
+    const att = new Set(ev?.attendees || []);
+    const added = ids.filter((id) => !att.has(id));
+    await updateDoc(doc(db, "events", d.id), { scoring: sc, ...(added.length ? { attendees: [...att, ...added] } : {}) });
+    state.partEdit = null;
+    toast(`${g.name} 참가자 ${ids.length}명 저장${added.length ? ` · 오늘 출석에 ${added.length}명 추가` : ""}`); render(true);
+  },
   feeFilter() { state.feeFilter = !state.feeFilter; render(true); },
   feeOpen(d) { state.feeOpen = d.id || null; render(true); },
   editBalance() { state.editBalance = !state.editBalance; render(true); },
@@ -1774,9 +1841,10 @@ const forms = {
     if (!name) return;
     const grade = Number(fd.get("grade")) || null;
     const guest = !!fd.get("guest");
+    const draft = state.partEdit?.draft || state.attendDraft; // 종목 참가자 편집 중이면 거기에 넣음
     const exist = state.members.find((m) => m.name === name);
     if (exist) {
-      state.attendDraft.add(exist.id);
+      draft.add(exist.id);
       const patch = {};
       // 휴면 회원은 복귀, 게스트는 게스트 그대로 (정식 회원을 게스트로 바꾸지는 않음)
       if (exist.active === false && !isGuest(exist)) patch.active = true;
@@ -1785,10 +1853,10 @@ const forms = {
     } else {
       const ref = doc(collection(db, "members"));
       await setDoc(ref, { name, active: !guest, ...(guest ? { guest: true } : {}), ...(grade ? { grade } : {}), createdAt: serverTimestamp() });
-      state.attendDraft.add(ref.id);
+      draft.add(ref.id);
     }
     f.reset(); f.querySelector('[name="guest"]').checked = guest; document.activeElement?.blur();
-    toast(`${name} 님을 ${guest && !(exist && !isGuest(exist)) ? "게스트로 " : ""}참가자에 넣었습니다 (저장을 눌러 확정)`); render(true);
+    toast(`${name} 님을 ${guest && !(exist && !isGuest(exist)) ? "게스트로 " : ""}${state.partEdit ? "종목 " : ""}참가자에 넣었습니다 (저장을 눌러 확정)`); render(true);
   },
   async login(fd) {
     try {
