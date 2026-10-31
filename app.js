@@ -519,6 +519,47 @@ function tieResult(g, a, b) {
   return { aw, bw, decided: !!winner, done: aw + bw >= rubbersOf(g).length, winner, rs };
 }
 
+// 리그 진행 순서: 연달아 같은 팀이 나오지 않게(오래 쉰 팀부터) 정함.
+// 팀 목록만으로 계산하므로 누가 열어도 같은 순서가 나오고, 저장된 결과 데이터(팀 쌍 기준)와는 무관해요.
+function scheduleTies(teams) {
+  const n = teams.length, all = [];
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) all.push([i, j]);
+  const total = all.length;
+  const share = (x, y) => x[0] === y[0] || x[0] === y[1] || x[1] === y[0] || x[1] === y[1];
+  const used = Array(total).fill(false), order = [], last = Array(n).fill(-99);
+  const restKey = (m) => Math.max(last[all[m][0]], last[all[m][1]]); // 작을수록 두 팀 모두 오래 쉰 것
+  let budget = 60000;
+  const dfs = (k) => {
+    if (k === total) return true;
+    if (--budget < 0) return false;
+    const prev = k ? all[order[k - 1]] : null;
+    const cands = [];
+    for (let m = 0; m < total; m++) if (!used[m] && !(prev && share(prev, all[m]))) cands.push(m);
+    cands.sort((x, y) => restKey(x) - restKey(y) || x - y);
+    for (const m of cands) {
+      const [a, b] = all[m], la = last[a], lb = last[b];
+      used[m] = true; order[k] = m; last[a] = last[b] = k;
+      if (dfs(k + 1)) return true;
+      used[m] = false; last[a] = la; last[b] = lb;
+    }
+    return false;
+  };
+  if (!dfs(0)) { // 완전히 안 겹치게 짤 수 없으면(예: 4팀) 겹침이 가장 적고 쉬는 시간이 긴 순서로
+    used.fill(false); order.length = 0; last.fill(-99);
+    for (let k = 0; k < total; k++) {
+      const prev = k ? all[order[k - 1]] : null;
+      let pick = -1, pk = null;
+      for (let m = 0; m < total; m++) {
+        if (used[m]) continue;
+        const key = [prev && share(prev, all[m]) ? 1 : 0, restKey(m), m];
+        if (!pk || key[0] < pk[0] || (key[0] === pk[0] && (key[1] < pk[1] || (key[1] === pk[1] && key[2] < pk[2])))) { pick = m; pk = key; }
+      }
+      used[pick] = true; order[k] = pick; all[pick].forEach((t) => (last[t] = k));
+    }
+  }
+  return order.map((m) => [teams[all[m][0]], teams[all[m][1]]]);
+}
+
 function leagueStandings(g) {
   const teams = g.teams || [];
   const rows = teams.map((t) => ({ id: t.id, t, p: 0, w: 0, l: 0, rw: 0, rl: 0 }));
@@ -756,10 +797,9 @@ function leagueView(ev, g, scale, admin) {
     <p class="hint">${s.done}/${s.pairs}경기 완료 · ${(s.pairs && s.done === s.pairs) ? "리그 종료, 점수 반영됨" : g.closed ? "순위 확정, 점수 반영됨" : "진행 중 · 현재 순위 기준 잠정 점수예요 (리그가 끝나면 확정)"} · 순위는 승수 → 세트 득실 → 승자승</p>
     ${admin && s.started && s.done < s.pairs ? `<button class="btn ghost sm" data-act="closeLeague" data-id="${ev.id}" data-g="${g.id}">${g.closed ? "확정 취소" : "여기서 순위 확정"}</button>` : ""}`;
 
-  const ties = [];
-  for (let i = 0; i < teams.length; i++) for (let j = i + 1; j < teams.length; j++) ties.push([teams[i], teams[j]]);
+  const ties = scheduleTies(teams);
   const list = `<div class="sub-title">대진 <span>${s.done}/${s.pairs} 완료</span></div>
-    <ul class="tie-list">${ties.map(([A, B]) => {
+    <ul class="tie-list">${ties.map(([A, B], no) => {
       const key = pairKey(A.id, B.id);
       const x = tieResult(g, A.id, B.id);
       const open = state.tieOpen === key;
@@ -769,6 +809,7 @@ function leagueView(ev, g, scale, admin) {
       const stat = x.done ? ["done", "완료"] : x.decided ? ["left", "남은 판"] : played ? ["live", "진행중"] : ["wait", "대기"];
       return `<li class="tie ${open ? "open" : ""}">
         <button class="tie-row" data-act="toggleTie" data-k="${key}" aria-expanded="${open}">
+          <span class="tno" aria-label="${no + 1}번째 경기">${no + 1}</span>
           <span class="tn ${x.winner === sideA.id ? "w" : ""}">${esc(sideA.name)}</span>
           <span class="ts ${played ? "" : "dim"}">${sa}<i>:</i>${sb}</span>
           <span class="tn r ${x.winner === sideB.id ? "w" : ""}">${esc(sideB.name)}</span>

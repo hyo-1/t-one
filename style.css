@@ -300,8 +300,9 @@ label.inline select, label.inline input { width: auto; min-height: 34px; padding
 /* 리그 대진 */
 .tie-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; }
 .tie + .tie { border-top: 1px solid var(--line); }
-.tie-row { width: 100%; display: grid; grid-template-columns: 1fr auto 1fr 58px 18px; align-items: center; gap: 8px; padding: 11px 12px; border: 0; background: #fff; text-align: left; font-size: 14.5px; }
+.tie-row { width: 100%; display: grid; grid-template-columns: 20px 1fr auto 1fr 58px 18px; align-items: center; gap: 8px; padding: 11px 12px; border: 0; background: #fff; text-align: left; font-size: 14.5px; }
 .tie.open .tie-row { background: var(--blue-50); }
+.tie-row .tno { font-size: 12px; font-weight: 800; color: var(--faint); text-align: center; font-variant-numeric: tabular-nums; }
 .tie-row .tn { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tie-row .tn.r { text-align: right; }
 .tie-row .tn.w { color: var(--blue); font-weight: 800; }
