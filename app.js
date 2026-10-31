@@ -1118,8 +1118,8 @@ function viewFees() {
     const p = paidOf(m.id);
     // 12개월 모두 납부(연납)하면 달별 칸 대신 파란 막대 하나로 표시 (관리자는 막대를 누르면 달별 칸이 열려 한 달만 고칠 수 있음)
     const bar = p.length === 12 && state.feeOpen !== m.id;
-    const barHtml = admin ? `<button class="year-bar" data-act="feeOpen" data-id="${m.id}" aria-label="${esc(m.name)} 연납 · 달별로 보기">납부 완료</button>`
-      : `<span class="year-bar" role="img" aria-label="1월부터 12월까지 납부 완료">납부 완료</span>`;
+    const barHtml = admin ? `<button class="year-bar" data-act="feeOpen" data-id="${m.id}" aria-label="${esc(m.name)} 연납 · 달별로 보기"></button>`
+      : `<span class="year-bar" role="img" aria-label="1월부터 12월까지 납부 완료"></span>`;
     return `<div class="fee-row ${m.id === state.me ? "me" : ""}">
       <span class="fee-nm click" data-act="player" data-id="${m.id}">${esc(dispName(m))}</span>
       <span class="months ${bar ? "full" : ""}">${bar ? barHtml : Array.from({ length: 12 }, (_, i) => {
@@ -1129,7 +1129,7 @@ function viewFees() {
       }).join("")}</span>
       ${admin ? (p.length === 12 && state.feeOpen === m.id
         ? `<button class="fee-cnt btn-cnt" data-act="feeOpen" data-id="" title="달별 칸 접기">접기</button>`
-        : `<button class="fee-cnt btn-cnt ${p.length === 12 ? "full" : ""}" data-act="payYear" data-id="${m.id}" title="연납 처리">${p.length === 12 ? "연납" : `${p.length}/12`}</button>`)
+        : `<button class="fee-cnt btn-cnt ${p.length === 12 ? "full" : ""}" data-act="payYear" data-id="${m.id}" title="연납 처리">${p.length === 12 ? "완납" : `${p.length}/12`}</button>`)
         : `<span class="fee-cnt ${p.length === 12 ? "full" : ""}">${p.length === 12 ? "완납" : `${p.length}/12`}</span>`}</div>`;
   }).join("");
   const statusCard = `<section class="card">
@@ -1873,7 +1873,7 @@ function openPlayer(id, focus) {
   watchFees(state.year);
   const feePaid = paidOf(id);
   const secFee = state.fees ? `<section class="pl-sec"><h3>회비 납부 <span class="count">${feePaid.length}/12개월</span></h3>
-    ${feePaid.length === 12 ? `<div class="year-bar big">납부 완료</div>`
+    ${feePaid.length === 12 ? `<div class="year-bar big" role="img" aria-label="12개월 납부 완료"></div>`
       : `<div class="months big">${Array.from({ length: 12 }, (_, i) => `<i class="mo ${feePaid.includes(i + 1) ? "on" : ""}">${i + 1}</i>`).join("")}</div>`}</section>` : "";
   const secAtt = `<section class="pl-sec"><h3>출석 기록 <span class="count">${att}/${evs.length}회</span></h3>${attHtml}</section>`;
 
