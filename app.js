@@ -170,6 +170,12 @@ const rawName = (id) => state.members.find((m) => m.id === id)?.name || "";
 const byName = (ids) => ids.map((id) => ({ id, name: memberName(id) }))
   .sort((a, b) => rawName(a.id).localeCompare(rawName(b.id), "ko"));
 
+// 팀원 표시 순서: 부수가 높은(숫자가 작은) 사람이 맨 앞, 부수 없는 사람은 맨 뒤, 같으면 이름순
+const gradeNo = (id) => Number(state.members.find((m) => m.id === id)?.grade) || 99;
+const byGrade = (ids) => ids.map((id) => ({ id, name: memberName(id) }))
+  .sort((a, b) => gradeNo(a.id) - gradeNo(b.id) || rawName(a.id).localeCompare(rawName(b.id), "ko"));
+const sortGrade = (ids) => byGrade(ids).map((x) => x.id);
+
 // ---------------------------------------------------------------------
 //  실시간 구독
 // ---------------------------------------------------------------------
@@ -511,7 +517,7 @@ const rubbersOf = (g) => fmtOf(g).rubbers;
 const isDoubles = (label) => label === "복식";
 const pairKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
 const teamOf = (g, tid) => (g.teams || []).find((t) => t.id === tid);
-const teamLabel = (t) => `<b>${esc(t.name)}</b><span class="tm">${byName(t.members || []).map((m) => esc(m.name)).join(" · ") || "팀원 없음"}</span>`;
+const teamLabel = (t) => `<b>${esc(t.name)}</b><span class="tm">${byGrade(t.members || []).map((m) => esc(m.name)).join(" · ") || "팀원 없음"}</span>`;
 const shuffle = (a) => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
 // 팀 매치 결과: 2판을 먼저 이기면 승부 결정, 3판을 모두 치르면 경기 완료
@@ -800,7 +806,7 @@ function teamRanking(ev, g, scale, admin) {
     const rec = g.records?.[t.id] || "";
     const pt = r ? scale[r - 1] : undefined;
     return `<li><div class="fin-row">${rk(r)}
-        <div class="fin-main"><b>${esc(t.name)}</b><span class="tm">${byName(t.members || []).map((m) => esc(m.name)).join(" · ") || "팀원 없음"}</span></div>
+        <div class="fin-main"><b>${esc(t.name)}</b><span class="tm">${byGrade(t.members || []).map((m) => esc(m.name)).join(" · ") || "팀원 없음"}</span></div>
         ${!admin && rec ? `<span class="rec">${esc(rec)}</span>` : ""}
         <span class="pts">${pt != null ? `+${pt}` : ""}</span></div>
       ${admin ? `<div class="fin-edit">
@@ -819,7 +825,7 @@ function leagueView(ev, g, scale, admin) {
     ${s.rows.map((r) => {
       const pt = s.started ? scale[r.rank - 1] : undefined;
       return `<tr><td>${s.started ? rk(r.rank) : rk(0)}</td>
-      <td class="l team-cell"><b>${esc(r.t.name)}</b><span class="tm">${byName(r.t.members || []).map((m) => esc(m.name)).join(" · ")}</span></td>
+      <td class="l team-cell"><b>${esc(r.t.name)}</b><span class="tm">${byGrade(r.t.members || []).map((m) => esc(m.name)).join(" · ")}</span></td>
       <td class="num">${r.w}</td><td class="num">${r.l}</td><td class="num">${r.rw}-${r.rl}</td>
       <td class="pts-cell ${final ? "" : "prov"}">${pt != null ? `+${pt}` : `<span class="dim">·</span>`}</td></tr>`;
     }).join("")}</tbody></table></div>
@@ -879,9 +885,9 @@ function rubberRow(ev, g, key, A, B, idx, label, r, admin) {
     if (!isDoubles(rubbersOf(g).at(-1))) {
       const used = new Set((g.league?.[key]?.r || []).flatMap((x) => (x ? [x.winner, x.loser] : [])));
       const left = (T.members || []).filter((id) => !used.has(id));
-      if (left.length) return left;
+      if (left.length) return sortGrade(left);
     }
-    return T.members || [];
+    return sortGrade(T.members || []);
   };
   if (isDoubles(label)) {
     const btn = (T) => `<button class="pick sm" data-act="setRubber" data-id="${ev.id}" data-g="${g.id}" data-k="${key}" data-i="2" data-w="${T.id}">${esc(T.name)} 승</button>`;
@@ -952,7 +958,7 @@ function teamEditor(ev, g, pool) {
     </div>
     <p class="hint lead">팀을 고른 뒤 아래 이름을 탭하면 그 팀으로 들어가요. 한 번 더 탭하면 빠져요. 다른 팀에 들어간 사람(회색)은 그 팀에서 먼저 빼야 고를 수 있어요.</p>
     <div class="te-teams">${te.teams.map((t) => `<button class="te-team ${te.active === t.id ? "on" : ""}" data-act="activeTeam" data-t="${t.id}">
-        <b>${esc(t.name)}</b><span>${byName(t.members).map((m) => esc(m.name)).join(", ") || "비어 있음"}</span></button>`).join("")}
+        <b>${esc(t.name)}</b><span>${byGrade(t.members).map((m) => esc(m.name)).join(", ") || "비어 있음"}</span></button>`).join("")}
       <button class="te-team add" data-act="addTeam">${IC.plus}팀 추가</button></div>
     <div class="chips wrap">${pool.map((m) => {
       const t = where[m.id];
