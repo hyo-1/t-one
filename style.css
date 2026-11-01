@@ -503,6 +503,12 @@ label.inline select, label.inline input { width: auto; min-height: 34px; padding
   animation: sheet-up 0.22s ease-out;
 }
 @keyframes sheet-up { from { transform: translateY(30px); opacity: 0; } to { transform: none; opacity: 1; } }
+.sheet-grip { height: 22px; display: grid; place-items: center; cursor: grab; }
+.sheet-grip::before { content: ""; width: 40px; height: 4px; border-radius: 4px; background: #cdd8e6; }
+.sheet-grip + .sheet-head { padding-top: 2px; }
+.sheet-grip, .sheet-head, .pl-stats { touch-action: none; user-select: none; -webkit-user-select: none; }
+.sheet-head button, .sheet-head a { touch-action: manipulation; }
+@media (min-width: 700px) { .sheet-grip { display: none; } .sheet-grip + .sheet-head { padding-top: 18px; } }
 .sheet-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 18px 18px 12px; }
 .sheet-head .kicker { font-size: 12px; font-weight: 700; color: var(--blue); }
 .sheet-head h2 { font-size: 21px; font-weight: 800; color: var(--navy); display: flex; align-items: center; gap: 8px; }

@@ -1952,7 +1952,7 @@ function openLogin() {
   $("#modal").classList.remove("hidden");
   $("#modal input").focus();
 }
-function closeModal() { state.viewPhoto = null; $("#modal").classList.add("hidden"); $("#modal").classList.remove("sheet-mode", "lightbox-mode"); $("#modal").innerHTML = ""; }
+function closeModal() { state.viewPhoto = null; $("#modal").style.background = ""; $("#modal").classList.add("hidden"); $("#modal").classList.remove("sheet-mode", "lightbox-mode"); $("#modal").innerHTML = ""; }
 
 // ----- 개인 기록 창 (순위·출석·회원 탭에서 이름을 누르면) -------------
 function openPlayer(id, focus) {
@@ -2007,6 +2007,7 @@ function openPlayer(id, focus) {
   const secAtt = `<section class="pl-sec"><h3>출석 기록 <span class="count">${att}/${evs.length}회</span></h3>${attHtml}</section>`;
 
   $("#modal").innerHTML = `<div class="sheet" role="dialog" aria-label="${esc(memberName(id))} 기록">
+    <div class="sheet-grip" aria-hidden="true"></div>
     <div class="sheet-head"><div><span class="kicker">${state.year}년 개인 기록</span><h2>${esc(memberName(id))} ${roleTag(m)}</h2></div>
       <button class="x-btn" data-act="closeModal">닫기</button></div>
     <div class="pl-stats">
@@ -2019,6 +2020,37 @@ function openPlayer(id, focus) {
   $("#modal").classList.remove("hidden");
 }
 $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
+
+// 개인 기록 창: 위쪽(손잡이·제목·요약)을 잡고 아래로 끌어내리면 창이 내려가며 이전 화면으로 돌아감
+(() => {
+  const modal = $("#modal");
+  let d = null;
+  const dim = (dy) => { modal.style.background = `rgba(11, 42, 85, ${0.45 * Math.max(0, 1 - dy / 420)})`; };
+  modal.addEventListener("pointerdown", (e) => {
+    const sheet = e.target.closest(".sheet");
+    if (!sheet || !e.target.closest(".sheet-grip, .sheet-head, .pl-stats") || e.target.closest("button, a, select, input, textarea")) return;
+    d = { sheet, id: e.pointerId, y0: e.clientY, dy: 0, t0: performance.now() };
+    sheet.style.animation = "none"; sheet.style.transition = "none";
+    try { sheet.setPointerCapture(e.pointerId); } catch { /* 무시 */ }
+  });
+  modal.addEventListener("pointermove", (e) => {
+    if (!d || e.pointerId !== d.id) return;
+    d.dy = Math.max(0, e.clientY - d.y0);
+    d.sheet.style.transform = `translateY(${d.dy}px)`; dim(d.dy);
+  });
+  const end = (e) => {
+    if (!d || e.pointerId !== d.id) return;
+    const { sheet, dy, t0 } = d; d = null;
+    const speed = dy / Math.max(1, performance.now() - t0);
+    sheet.style.transition = "transform 0.18s ease-out";
+    if (dy > 110 || (dy > 40 && speed > 0.6)) { // 충분히 내렸거나 빠르게 쓸어내림 → 닫기
+      sheet.style.transform = "translateY(105%)"; dim(420);
+      setTimeout(closeModal, 170);
+    } else { sheet.style.transform = ""; dim(0); setTimeout(() => { modal.style.background = ""; }, 190); }
+  };
+  modal.addEventListener("pointerup", end);
+  modal.addEventListener("pointercancel", end);
+})();
 
 let toastTimer;
 function toast(msg) {
