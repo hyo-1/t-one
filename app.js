@@ -1115,7 +1115,7 @@ async function compressPhoto(file) {
 
 // 크게 보기
 const photoCache = {};
-async function showPhoto(id) {
+async function showPhoto(id, dir) {
   const list = state.photos || [];
   const x = list.find((p) => p.id === id);
   if (!x) return closeModal();
@@ -1124,6 +1124,7 @@ async function showPhoto(id) {
   const i = same.findIndex((p) => p.id === id);
   const prev = same[i - 1], next = same[i + 1];
   state.viewPhoto = id;
+  state.lbNav = { prev: prev?.id, next: next?.id };
   $("#modal").innerHTML = `<div class="lightbox">
     <div class="lb-top"><div><b>${ev ? esc(ev.title) : "모임 사진"}</b><span>${fmtDate(x.date)} · ${i + 1}/${same.length}</span></div>
       <button class="lb-x" data-act="closeModal" aria-label="닫기">닫기</button></div>
@@ -1134,6 +1135,7 @@ async function showPhoto(id) {
       <button class="lb-btn" ${next ? `data-act="openPhoto" data-id="${next.id}"` : "disabled"} aria-label="다음">${IC.right}</button></div></div>`;
   $("#modal").classList.add("lightbox-mode");
   $("#modal").classList.remove("hidden");
+  if (dir) $("#lbImg").style.animation = `lb-in-${dir} 0.22s ease-out`; // 넘겨 온 방향에서 슬라이드해 들어옴
   if (!photoCache[id]) {
     try {
       const d = await getDoc(doc(db, "photoFull", id));
@@ -2020,6 +2022,49 @@ function openPlayer(id, focus) {
   $("#modal").classList.remove("hidden");
 }
 $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
+
+// 사진 보기: 왼쪽으로 밀면 다음(오른쪽) 사진, 오른쪽으로 밀면 이전 사진 (같은 모임 사진끼리) · 키보드 ←/→/Esc도 지원
+(() => {
+  const modal = $("#modal");
+  let g = null;
+  const go = (dir) => { const id = dir === "next" ? state.lbNav?.next : state.lbNav?.prev; if (id) showPhoto(id, dir); };
+  modal.addEventListener("pointerdown", (e) => {
+    const area = e.target.closest(".lb-img");
+    if (!area || !state.viewPhoto) return;
+    g = { id: e.pointerId, x0: e.clientX, y0: e.clientY, dx: 0, t0: performance.now(), img: area.querySelector("img"), drag: false };
+  });
+  modal.addEventListener("pointermove", (e) => {
+    if (!g || e.pointerId !== g.id) return;
+    const dx = e.clientX - g.x0, dy = e.clientY - g.y0;
+    if (!g.drag) {
+      if (Math.abs(dx) < 8 || Math.abs(dx) < Math.abs(dy)) return;
+      g.drag = true; g.img.style.animation = "none"; g.img.style.transition = "none";
+      try { modal.setPointerCapture(e.pointerId); } catch { /* 무시 */ }
+    }
+    const nav = state.lbNav || {};
+    g.dx = (dx > 0 && !nav.prev) || (dx < 0 && !nav.next) ? dx * 0.25 : dx; // 끝 사진에서는 저항감만
+    g.img.style.transform = `translateX(${g.dx}px)`;
+  });
+  const end = (e) => {
+    if (!g || e.pointerId !== g.id) return;
+    const { img, dx, t0, drag } = g; g = null;
+    if (!drag) return;
+    const speed = Math.abs(dx) / Math.max(1, performance.now() - t0);
+    const dir = dx < 0 ? "next" : "prev";
+    const target = dir === "next" ? state.lbNav?.next : state.lbNav?.prev;
+    img.style.transition = "transform 0.15s ease-out, opacity 0.15s";
+    if (target && (Math.abs(dx) > 70 || (Math.abs(dx) > 30 && speed > 0.5))) {
+      img.style.transform = `translateX(${dx < 0 ? "-" : ""}60%)`; img.style.opacity = "0";
+      setTimeout(() => go(dir), 120);
+    } else img.style.transform = "";
+  };
+  modal.addEventListener("pointerup", end);
+  modal.addEventListener("pointercancel", end);
+  document.addEventListener("keydown", (e) => {
+    if (!state.viewPhoto) return;
+    if (e.key === "ArrowLeft") go("prev"); else if (e.key === "ArrowRight") go("next"); else if (e.key === "Escape") closeModal();
+  });
+})();
 
 // 개인 기록 창: 위쪽(손잡이·제목·요약)을 잡고 아래로 끌어내리면 창이 내려가며 이전 화면으로 돌아감
 (() => {
