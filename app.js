@@ -75,7 +75,8 @@ const PRESET_EVENT = {
 꾸준히 참석해주시는 분들이 혜택을 받을 수 있도록 하겠습니다! 🙏`,
 };
 // 회비 입금 계좌 (회비 탭에 표시, 누르면 계좌번호가 복사됨)
-const FEE_ACCOUNT = { bank: "카카오뱅크", number: "3333273038388" };
+// holder(예금주)는 화면에만 보이고 복사되지는 않음
+const FEE_ACCOUNT = { bank: "카카오뱅크", number: "3333273038388", holder: "성준형" };
 // 모임마다 올릴 수 있는 사진 수 (무료 저장 용량 1GB 기준, 장당 약 0.3~0.5MB로 줄여서 저장)
 const PHOTO_LIMIT = 3;
 // 직책 (회원 탭에서 관리자가 바꿀 수 있고, 따로 정하지 않으면 아래 값을 사용)
@@ -1217,12 +1218,11 @@ function viewFees() {
     ${list.length ? (shown.length ? `<div class="fee-table">${head}${rows}</div>` : `<p class="empty">${curM}월까지 모두 납부했어요.</p>`) : `<p class="empty">회원을 먼저 등록하세요.</p>`}
     <p class="hint">${admin ? "달 칸을 누르면 그 달 납부/미납이 바뀌고, 오른쪽 <b>납부 개월 수</b>를 누르면 12개월 한 번에 <b>연납 처리</b>돼요. " : ""}파란 칸이 납부한 달이고, 12개월을 모두 냈으면 파란 막대 하나로 보여요.${admin ? " 막대를 누르면 달별로 열려서 한 달만 고칠 수 있어요." : ""} 이름을 누르면 개인 기록을 볼 수 있어요.</p></section>`;
 
-  const acctCard = `<section class="card">
-    <div class="sec-head"><h2>회비 계좌</h2></div>
+  const acctCard = `<section class="card acct-card">
     <button class="acct-btn" data-act="copyAcct" aria-label="${esc(FEE_ACCOUNT.bank)} ${FEE_ACCOUNT.number} 계좌번호 복사">
       <span class="bank">${esc(FEE_ACCOUNT.bank)}</span><b class="num">${esc(FEE_ACCOUNT.number)}</b>
       <span class="copy">${IC.copy}<em>복사</em></span></button>
-    <p class="hint">누르면 은행 이름과 계좌번호가 함께 복사돼요.</p></section>`;
+    <p class="acct-owner">예금주 <b>${esc(FEE_ACCOUNT.holder)}</b></p></section>`;
 
   return balCard + acctCard + statusCard;
 }
