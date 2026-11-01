@@ -1222,7 +1222,7 @@ function viewFees() {
     <button class="acct-btn" data-act="copyAcct" aria-label="${esc(FEE_ACCOUNT.bank)} ${FEE_ACCOUNT.number} 계좌번호 복사">
       <span class="bank">${esc(FEE_ACCOUNT.bank)}</span><b class="num">${esc(FEE_ACCOUNT.number)}</b>
       <span class="copy">${IC.copy}<em>복사</em></span></button>
-    <p class="hint">누르면 계좌번호가 복사돼요.</p></section>`;
+    <p class="hint">누르면 은행 이름과 계좌번호가 함께 복사돼요.</p></section>`;
 
   return balCard + acctCard + statusCard;
 }
@@ -1692,7 +1692,7 @@ const actions = {
     toast(`${g.name} 참가자 ${ids.length}명 저장${added.length ? ` · 오늘 출석에 ${added.length}명 추가` : ""}`); render(true);
   },
   async copyAcct(d, el) {
-    const num = FEE_ACCOUNT.number;
+    const num = `${FEE_ACCOUNT.bank} ${FEE_ACCOUNT.number}`; // 카톡에 붙여넣으면 바로 송금할 수 있게 은행 이름과 함께 복사
     let ok = false;
     try { await navigator.clipboard.writeText(num); ok = true; } catch { /* 아래 방법으로 */ }
     if (!ok) { // 카카오톡 등 앱 안 브라우저 대비
@@ -1703,8 +1703,8 @@ const actions = {
         ok = document.execCommand("copy"); t.remove();
       } catch { /* 무시 */ }
     }
-    if (!ok) return prompt("아래 계좌번호를 복사하세요", `${FEE_ACCOUNT.bank} ${num}`);
-    toast(`${FEE_ACCOUNT.bank} 계좌번호를 복사했어요`);
+    if (!ok) return prompt("아래 계좌번호를 복사하세요", num);
+    toast(`${num} 복사했어요`);
     el.classList.add("done"); el.querySelector(".copy em").textContent = "복사됨";
     setTimeout(() => { el.classList.remove("done"); const em = el.querySelector(".copy em"); if (em) em.textContent = "복사"; }, 1800);
   },
