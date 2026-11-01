@@ -74,6 +74,8 @@ const PRESET_EVENT = {
 내년부터는 모임 참여도를 높이기 위해 출석률을 기준으로도 상품을 지급할 예정입니다.
 꾸준히 참석해주시는 분들이 혜택을 받을 수 있도록 하겠습니다! 🙏`,
 };
+// 회비 입금 계좌 (회비 탭에 표시, 누르면 계좌번호가 복사됨)
+const FEE_ACCOUNT = { bank: "카카오뱅크", number: "3333273038388" };
 // 모임마다 올릴 수 있는 사진 수 (무료 저장 용량 1GB 기준, 장당 약 0.3~0.5MB로 줄여서 저장)
 const PHOTO_LIMIT = 3;
 // 직책 (회원 탭에서 관리자가 바꿀 수 있고, 따로 정하지 않으면 아래 값을 사용)
@@ -259,6 +261,7 @@ const IC = {
   edit: SVG('<path d="M4 20h4L19 9l-4-4L4 16z"/>'),
   plus: SVG('<path d="M12 5v14M5 12h14"/>'),
   check: SVG('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
+  copy: SVG('<rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15V6.5A2.5 2.5 0 0 1 7.5 4H16"/>'),
   doc: SVG('<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>'),
   notice: SVG('<path d="M4 9.5v5h2.5L16 19V5L6.5 9.5z"/><path d="M6.5 14.5l1.4 4.5h3l-1.2-3.7"/><path d="M19 9.3a3.2 3.2 0 0 1 0 5.4"/>'),
 };
@@ -1214,7 +1217,14 @@ function viewFees() {
     ${list.length ? (shown.length ? `<div class="fee-table">${head}${rows}</div>` : `<p class="empty">${curM}월까지 모두 납부했어요.</p>`) : `<p class="empty">회원을 먼저 등록하세요.</p>`}
     <p class="hint">${admin ? "달 칸을 누르면 그 달 납부/미납이 바뀌고, 오른쪽 <b>납부 개월 수</b>를 누르면 12개월 한 번에 <b>연납 처리</b>돼요. " : ""}파란 칸이 납부한 달이고, 12개월을 모두 냈으면 파란 막대 하나로 보여요.${admin ? " 막대를 누르면 달별로 열려서 한 달만 고칠 수 있어요." : ""} 이름을 누르면 개인 기록을 볼 수 있어요.</p></section>`;
 
-  return balCard + statusCard;
+  const acctCard = `<section class="card">
+    <div class="sec-head"><h2>회비 계좌</h2></div>
+    <button class="acct-btn" data-act="copyAcct" aria-label="${esc(FEE_ACCOUNT.bank)} ${FEE_ACCOUNT.number} 계좌번호 복사">
+      <span class="bank">${esc(FEE_ACCOUNT.bank)}</span><b class="num">${esc(FEE_ACCOUNT.number)}</b>
+      <span class="copy">${IC.copy}<em>복사</em></span></button>
+    <p class="hint">누르면 계좌번호가 복사돼요.</p></section>`;
+
+  return balCard + acctCard + statusCard;
 }
 
 // 참가자 선택 화면의 "바로 추가" 입력 (기본은 게스트로 추가)
@@ -1681,6 +1691,23 @@ const actions = {
     state.partEdit = null;
     toast(`${g.name} 참가자 ${ids.length}명 저장${added.length ? ` · 오늘 출석에 ${added.length}명 추가` : ""}`); render(true);
   },
+  async copyAcct(d, el) {
+    const num = FEE_ACCOUNT.number;
+    let ok = false;
+    try { await navigator.clipboard.writeText(num); ok = true; } catch { /* 아래 방법으로 */ }
+    if (!ok) { // 카카오톡 등 앱 안 브라우저 대비
+      try {
+        const t = document.createElement("textarea");
+        t.value = num; t.setAttribute("readonly", ""); t.style.cssText = "position:fixed;top:0;left:0;opacity:0";
+        document.body.appendChild(t); t.select(); t.setSelectionRange(0, num.length);
+        ok = document.execCommand("copy"); t.remove();
+      } catch { /* 무시 */ }
+    }
+    if (!ok) return prompt("아래 계좌번호를 복사하세요", `${FEE_ACCOUNT.bank} ${num}`);
+    toast(`${FEE_ACCOUNT.bank} 계좌번호를 복사했어요`);
+    el.classList.add("done"); el.querySelector(".copy em").textContent = "복사됨";
+    setTimeout(() => { el.classList.remove("done"); const em = el.querySelector(".copy em"); if (em) em.textContent = "복사"; }, 1800);
+  },
   feeFilter() { state.feeFilter = !state.feeFilter; render(true); },
   feeOpen(d) { state.feeOpen = d.id || null; render(true); },
   editBalance() { state.editBalance = !state.editBalance; render(true); },
@@ -2023,37 +2050,53 @@ function openPlayer(id, focus) {
 }
 $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
 
-// 사진 보기: 왼쪽으로 밀면 다음(오른쪽) 사진, 오른쪽으로 밀면 이전 사진 (같은 모임 사진끼리) · 키보드 ←/→/Esc도 지원
+// 사진 보기: 화면 아무 곳이나 잡고
+//  · 왼쪽으로 밀면 다음(오른쪽) 사진, 오른쪽으로 밀면 이전 사진 (같은 모임 사진끼리)
+//  · 아래로 끌어내리면 사진이 내려가며 이전 화면으로 복귀
+//  · 키보드 ←/→/Esc도 지원
 (() => {
   const modal = $("#modal");
   let g = null;
   const go = (dir) => { const id = dir === "next" ? state.lbNav?.next : state.lbNav?.prev; if (id) showPhoto(id, dir); };
+  const dimTo = (dy) => { modal.style.background = `rgba(10, 19, 34, ${Math.max(0, 1 - dy / 520)})`; };
   modal.addEventListener("pointerdown", (e) => {
-    const area = e.target.closest(".lb-img");
-    if (!area || !state.viewPhoto) return;
-    g = { id: e.pointerId, x0: e.clientX, y0: e.clientY, dx: 0, t0: performance.now(), img: area.querySelector("img"), drag: false };
+    const box = e.target.closest(".lightbox");
+    if (!box || !state.viewPhoto || e.target.closest("button, a")) return;
+    g = { id: e.pointerId, x0: e.clientX, y0: e.clientY, dx: 0, dy: 0, t0: performance.now(), box, img: $("#lbImg"), axis: null };
   });
   modal.addEventListener("pointermove", (e) => {
     if (!g || e.pointerId !== g.id) return;
     const dx = e.clientX - g.x0, dy = e.clientY - g.y0;
-    if (!g.drag) {
-      if (Math.abs(dx) < 8 || Math.abs(dx) < Math.abs(dy)) return;
-      g.drag = true; g.img.style.animation = "none"; g.img.style.transition = "none";
+    if (!g.axis) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < 8) return;
+      if (Math.abs(dy) > Math.abs(dx)) { if (dy < 0) { g = null; return; } g.axis = "y"; } else g.axis = "x";
+      g.box.style.transition = "none"; if (g.img) { g.img.style.animation = "none"; g.img.style.transition = "none"; }
       try { modal.setPointerCapture(e.pointerId); } catch { /* 무시 */ }
     }
-    const nav = state.lbNav || {};
-    g.dx = (dx > 0 && !nav.prev) || (dx < 0 && !nav.next) ? dx * 0.25 : dx; // 끝 사진에서는 저항감만
-    g.img.style.transform = `translateX(${g.dx}px)`;
+    if (g.axis === "y") {
+      g.dy = Math.max(0, dy);
+      g.box.style.transform = `translateY(${g.dy}px)`; dimTo(g.dy);
+    } else if (g.img) {
+      const nav = state.lbNav || {};
+      g.dx = (dx > 0 && !nav.prev) || (dx < 0 && !nav.next) ? dx * 0.25 : dx; // 끝 사진에서는 저항감만
+      g.img.style.transform = `translateX(${g.dx}px)`;
+    }
   });
   const end = (e) => {
     if (!g || e.pointerId !== g.id) return;
-    const { img, dx, t0, drag } = g; g = null;
-    if (!drag) return;
-    const speed = Math.abs(dx) / Math.max(1, performance.now() - t0);
+    const { box, img, dx, dy, t0, axis } = g; g = null;
+    if (!axis) return;
+    const dt = Math.max(1, performance.now() - t0);
+    if (axis === "y") {
+      box.style.transition = "transform 0.18s ease-out";
+      if (dy > 110 || (dy > 40 && dy / dt > 0.6)) { box.style.transform = "translateY(105%)"; dimTo(520); setTimeout(closeModal, 170); }
+      else { box.style.transform = ""; dimTo(0); setTimeout(() => { modal.style.background = ""; }, 190); }
+      return;
+    }
     const dir = dx < 0 ? "next" : "prev";
     const target = dir === "next" ? state.lbNav?.next : state.lbNav?.prev;
     img.style.transition = "transform 0.15s ease-out, opacity 0.15s";
-    if (target && (Math.abs(dx) > 70 || (Math.abs(dx) > 30 && speed > 0.5))) {
+    if (target && (Math.abs(dx) > 70 || (Math.abs(dx) > 30 && Math.abs(dx) / dt > 0.5))) {
       img.style.transform = `translateX(${dx < 0 ? "-" : ""}60%)`; img.style.opacity = "0";
       setTimeout(() => go(dir), 120);
     } else img.style.transform = "";

@@ -699,7 +699,20 @@ button.stat { font: inherit; text-align: left; background: #fff; cursor: pointer
 .part-note { margin: 0 0 8px; }
 
 /* 사진 넘겨 보기 */
-.lb-img { touch-action: none; user-select: none; -webkit-user-select: none; overflow: hidden; }
+.lightbox { touch-action: none; user-select: none; -webkit-user-select: none; }
+.lb-img { overflow: hidden; }
 .lb-img img { -webkit-user-drag: none; will-change: transform; }
 @keyframes lb-in-next { from { transform: translateX(48px); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes lb-in-prev { from { transform: translateX(-48px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* 회비 계좌 */
+.acct-btn { width: 100%; display: grid; grid-template-columns: 1fr auto; align-items: center; row-gap: 8px; column-gap: 10px; padding: 13px 14px 14px; border: 1px solid var(--line-2); border-radius: var(--r-md); background: var(--blue-50); text-align: left; cursor: pointer; font-family: inherit; color: var(--navy); -webkit-tap-highlight-color: transparent; }
+.acct-btn:active { transform: scale(0.985); }
+.acct-btn .bank { grid-column: 1; grid-row: 1; justify-self: start; font-size: 12.5px; font-weight: 800; color: var(--blue); background: #fff; border-radius: 999px; padding: 4px 10px; white-space: nowrap; }
+.acct-btn .num { grid-column: 1 / -1; grid-row: 2; font-size: 24px; font-weight: 800; letter-spacing: 0.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.acct-btn .copy { grid-column: 2; grid-row: 1; display: inline-flex; align-items: center; gap: 4px; color: var(--blue); font-size: 12.5px; font-weight: 700; }
+.acct-btn .copy em { font-style: normal; }
+.acct-btn .copy .ic { width: 16px; height: 16px; }
+.acct-btn.done { background: #e6f6ee; border-color: #b7e2cb; }
+.acct-btn.done .copy { color: #1f8a57; }
+@media (max-width: 370px) { .acct-btn .num { font-size: 21px; letter-spacing: 0.2px; } }
