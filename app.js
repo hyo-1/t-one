@@ -1225,10 +1225,9 @@ function viewFees() {
     <p class="hint">${admin ? "달 칸을 누르면 그 달 납부/미납이 바뀌고, 오른쪽 <b>납부 개월 수</b>를 누르면 12개월 한 번에 <b>연납 처리</b>돼요. " : ""}파란 칸이 납부한 달이고, 12개월을 모두 냈으면 파란 막대 하나로 보여요.${admin ? " 막대를 누르면 달별로 열려서 한 달만 고칠 수 있어요." : ""} 이름을 누르면 개인 기록을 볼 수 있어요.</p></section>`;
 
   const acctCard = `<section class="card acct-card">
-    <button class="acct-btn" data-act="copyAcct" aria-label="${esc(FEE_ACCOUNT.bank)} ${FEE_ACCOUNT.number} 계좌번호 복사">
-      <span class="bank">${esc(FEE_ACCOUNT.bank)}</span><b class="num">${esc(FEE_ACCOUNT.number)}</b>
-      <span class="copy">${IC.copy}<em>복사</em></span></button>
-    <p class="acct-owner">예금주 <b>${esc(FEE_ACCOUNT.holder)}</b></p></section>`;
+    <button class="acct-btn" data-act="copyAcct" aria-label="회비계좌 ${esc(FEE_ACCOUNT.bank)} ${FEE_ACCOUNT.number} ${esc(FEE_ACCOUNT.holder)} · 눌러서 복사">
+      <span class="tag">회비계좌</span><span class="bk">${esc(FEE_ACCOUNT.bank)}</span><b class="num">${esc(FEE_ACCOUNT.number)}</b><span class="nm">${esc(FEE_ACCOUNT.holder)}</span>
+      <span class="sp"></span><span class="copy">${IC.copy}</span></button></section>`;
 
   return balCard + acctCard + statusCard;
 }
@@ -1711,8 +1710,9 @@ const actions = {
     }
     if (!ok) return prompt("아래 계좌번호를 복사하세요", num);
     toast(`${num} 복사했어요`);
-    el.classList.add("done"); el.querySelector(".copy em").textContent = "복사됨";
-    setTimeout(() => { el.classList.remove("done"); const em = el.querySelector(".copy em"); if (em) em.textContent = "복사"; }, 1800);
+    const ico = el.querySelector(".copy");
+    el.classList.add("done"); if (ico) ico.innerHTML = IC.check;
+    setTimeout(() => { el.classList.remove("done"); const c = el.querySelector(".copy"); if (c) c.innerHTML = IC.copy; }, 1800);
   },
   feeFilter() { state.feeFilter = !state.feeFilter; render(true); },
   feeOpen(d) { state.feeOpen = d.id || null; render(true); },
