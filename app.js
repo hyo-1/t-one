@@ -2059,15 +2059,87 @@ $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") clos
 // 사진 보기: 화면 아무 곳이나 잡고
 //  · 왼쪽으로 밀면 다음(오른쪽) 사진, 오른쪽으로 밀면 이전 사진 (같은 모임 사진끼리)
 //  · 아래로 끌어내리면 사진이 내려가며 이전 화면으로 복귀
+//  · 두 손가락 확대/축소, 두 번 탭으로 확대(2.5배)/복귀, 확대 중에는 한 손가락으로 이동
 //  · 키보드 ←/→/Esc도 지원
 (() => {
   const modal = $("#modal");
   let g = null;
   const go = (dir) => { const id = dir === "next" ? state.lbNav?.next : state.lbNav?.prev; if (id) showPhoto(id, dir); };
   const dimTo = (dy) => { modal.style.background = `rgba(10, 19, 34, ${Math.max(0, 1 - dy / 520)})`; };
+  // ── 확대/축소: 두 손가락 벌리기·오므리기, 두 번 탭(더블클릭), 마우스 휠. 확대 중에는 한 손가락으로 이동
+  const Z = { s: 1, x: 0, y: 0, img: null, pinching: false };
+  const pts = new Map(); let pin = null, pan = null, tap = null, lastTap = null;
+  const MAXZ = 5;
+  const zImg = () => { const im = $("#lbImg"); if (im !== Z.img) { Z.img = im; Z.s = 1; Z.x = 0; Z.y = 0; pin = pan = tap = lastTap = null; Z.pinching = false; pts.clear(); } return im; };
+  const zBox = () => { const r = $(".lb-img")?.getBoundingClientRect(); return r ? { cx: r.left + r.width / 2, cy: r.top + r.height / 2, w: r.width, h: r.height } : null; };
+  const zClamp = (im, b) => { const mx = Math.max(0, (im.offsetWidth * Z.s - b.w) / 2), my = Math.max(0, (im.offsetHeight * Z.s - b.h) / 2); Z.x = Math.min(mx, Math.max(-mx, Z.x)); Z.y = Math.min(my, Math.max(-my, Z.y)); };
+  const zApply = (im, anim) => { im.style.animation = "none"; im.style.transition = anim ? "transform 0.2s ease-out" : "none"; im.style.transform = `translate(${Z.x}px, ${Z.y}px) scale(${Z.s})`; };
+  const zoomAt = (fx, fy, s1, anim) => { // (fx,fy) 화면 좌표의 점이 제자리에 있도록 s1배로
+    const im = zImg(), b = zBox(); if (!im || !b) return;
+    s1 = Math.min(MAXZ, Math.max(1, s1));
+    const k = s1 / Z.s; Z.x = fx - b.cx - k * (fx - b.cx - Z.x); Z.y = fy - b.cy - k * (fy - b.cy - Z.y); Z.s = s1;
+    if (Z.s < 1.02) { Z.s = 1; Z.x = 0; Z.y = 0; } else zClamp(im, b);
+    zApply(im, anim);
+  };
+  modal.addEventListener("pointerdown", (e) => {
+    if (!state.viewPhoto || !e.target.closest(".lb-img, .lightbox") || e.target.closest("button, a")) return;
+    const im = zImg(); if (!im) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 1) { tap = { x: e.clientX, y: e.clientY, t: performance.now() }; if (Z.s > 1) pan = { id: e.pointerId, x0: e.clientX, y0: e.clientY, ox: Z.x, oy: Z.y }; }
+    else if (pts.size === 2) {
+      tap = null; pan = null; Z.pinching = true;
+      if (g) { g.box.style.transform = ""; if (g.img) g.img.style.transform = ""; modal.style.background = ""; g = null; }
+      const [a, c] = [...pts.values()];
+      pin = { d0: Math.hypot(a.x - c.x, a.y - c.y) || 1, mx: (a.x + c.x) / 2, my: (a.y + c.y) / 2, s0: Z.s, x0: Z.x, y0: Z.y };
+      try { modal.setPointerCapture(e.pointerId); } catch { /* 무시 */ }
+    }
+  });
+  modal.addEventListener("pointermove", (e) => {
+    if (!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const im = Z.img, b = zBox(); if (!im || !b) return;
+    if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 10) tap = null;
+    if (pin && pts.size >= 2) {
+      const [a, c] = [...pts.values()];
+      const d = Math.hypot(a.x - c.x, a.y - c.y), mx = (a.x + c.x) / 2, my = (a.y + c.y) / 2;
+      const s1 = Math.min(MAXZ * 1.15, Math.max(0.8, pin.s0 * d / pin.d0)), k = s1 / pin.s0;
+      Z.s = s1; Z.x = mx - b.cx - k * (pin.mx - b.cx - pin.x0); Z.y = my - b.cy - k * (pin.my - b.cy - pin.y0);
+      if (Z.s > 1) zClamp(im, b); zApply(im, false);
+    } else if (pan && e.pointerId === pan.id && Z.s > 1) {
+      Z.x = pan.ox + e.clientX - pan.x0; Z.y = pan.oy + e.clientY - pan.y0; zClamp(im, b); zApply(im, false);
+    }
+  });
+  const zEnd = (e) => {
+    if (!pts.has(e.pointerId)) return;
+    pts.delete(e.pointerId);
+    const im = Z.img, b = zBox();
+    if (pin && pts.size < 2) { // 핀치 끝: 범위 맞추기
+      pin = null; if (im && b) { Z.s = Math.min(MAXZ, Z.s); if (Z.s < 1.05) { Z.s = 1; Z.x = 0; Z.y = 0; } else zClamp(im, b); zApply(im, true); }
+      const rest = [...pts.entries()][0];
+      pan = rest && Z.s > 1 ? { id: rest[0], x0: rest[1].x, y0: rest[1].y, ox: Z.x, oy: Z.y } : null;
+      if (!pts.size) setTimeout(() => { Z.pinching = false; }, 0); else Z.pinching = Z.s > 1 || pts.size > 0;
+      tap = null; return;
+    }
+    if (pan && e.pointerId === pan.id) pan = null;
+    if (!pts.size) Z.pinching = false;
+    if (tap && e.type === "pointerup" && performance.now() - tap.t < 300) { // 두 번 탭 → 확대/원래대로
+      const now = performance.now();
+      if (lastTap && now - lastTap.t < 320 && Math.hypot(tap.x - lastTap.x, tap.y - lastTap.y) < 32) {
+        lastTap = null; zoomAt(tap.x, tap.y, Z.s > 1.05 ? 1 : 2.5, true);
+      } else lastTap = { x: tap.x, y: tap.y, t: now };
+    }
+    tap = null;
+  };
+  modal.addEventListener("pointerup", zEnd);
+  modal.addEventListener("pointercancel", zEnd);
+  modal.addEventListener("wheel", (e) => {
+    if (!state.viewPhoto || !e.target.closest(".lb-img")) return;
+    e.preventDefault(); zImg(); zoomAt(e.clientX, e.clientY, Z.s * (e.deltaY < 0 ? 1.2 : 1 / 1.2), false);
+  }, { passive: false });
   modal.addEventListener("pointerdown", (e) => {
     const box = e.target.closest(".lightbox");
     if (!box || !state.viewPhoto || e.target.closest("button, a")) return;
+    if (Z.s > 1 || Z.pinching || pts.size > 1) return; // 확대 중·핀치 중에는 사진 넘기기/닫기 제스처 끄기
     g = { id: e.pointerId, x0: e.clientX, y0: e.clientY, dx: 0, dy: 0, t0: performance.now(), box, img: $("#lbImg"), axis: null };
   });
   modal.addEventListener("pointermove", (e) => {

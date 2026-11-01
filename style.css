@@ -701,7 +701,7 @@ button.stat { font: inherit; text-align: left; background: #fff; cursor: pointer
 /* 사진 넘겨 보기 */
 .lightbox { touch-action: none; user-select: none; -webkit-user-select: none; }
 .lb-img { overflow: hidden; }
-.lb-img img { -webkit-user-drag: none; will-change: transform; }
+.lb-img img { -webkit-user-drag: none; will-change: transform; transform-origin: center; }
 @keyframes lb-in-next { from { transform: translateX(48px); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes lb-in-prev { from { transform: translateX(-48px); opacity: 0; } to { transform: none; opacity: 1; } }
 
